@@ -18,23 +18,27 @@
 //   coyote time, and jump buffering.
 
 const PHYS = {
-  gravity: 0.42,
+  // Asymmetric gravity: you fall faster than you rise. This is the single
+  // biggest "feel" lever — it keeps the jump arc crisp instead of floaty and
+  // makes landings feel deliberate. (apex ~3.3 tiles, reach ~6 tiles.)
+  gravityUp: 0.48,    // while rising
+  gravityFall: 0.72,  // while falling
   maxFall: 8.5,
   walkAccel: 0.42,
   runAccel: 0.62,
   friction: 0.55,
   walkMax: 2.1,
   runMax: 3.6,
-  jumpVel: -7.7,
+  jumpVel: -7.1,
   jumpCut: 0.45,      // multiply upward vel when jump released (variable height)
   coyoteTime: 6,      // frames after leaving a ledge you can still jump
   jumpBuffer: 6,      // frames a jump press is remembered before landing
   meterMax: 100,
   meterGain: 1.9,     // per frame while running at speed
   meterDrain: 1.2,    // per frame when not
-  flyTime: 150,       // frames of boosted flight when meter is full
-  flyThrust: -0.55,   // upward accel while boosting
-  flyMaxUp: -4.0,
+  flyTime: 100,       // frames of boosted flight when meter is full (a burst)
+  flyThrust: -0.6,    // lift accel while boosting + holding jump
+  flyMaxUp: -3.5,     // cap on climb speed while boosting
 };
 
 const TIER = { SMALL: 0, ARMORED: 1, MODULE: 2 };
@@ -129,16 +133,16 @@ class Player {
       this.meter = 0;
       Sfx.boost();
     }
-    if (this.flying > 0) {
-      this.flying--;
-      if (held('jump')) {
-        this.vy += PHYS.flyThrust;
-        if (this.vy < PHYS.flyMaxUp) this.vy = PHYS.flyMaxUp;
-      }
+    // ---- vertical accel: flight lift OR asymmetric gravity ----
+    if (this.flying > 0) this.flying--;
+    if (this.flying > 0 && held('jump')) {
+      // Boosting: lift replaces gravity, so holding jump climbs and releasing
+      // lets you glide down — controllable flight rather than a fixed hop.
+      this.vy += PHYS.flyThrust;
+      if (this.vy < PHYS.flyMaxUp) this.vy = PHYS.flyMaxUp;
+    } else {
+      this.vy += this.vy < 0 ? PHYS.gravityUp : PHYS.gravityFall;
     }
-
-    // ---- gravity ----
-    this.vy += PHYS.gravity;
     if (this.vy > PHYS.maxFall) this.vy = PHYS.maxFall;
 
     // ---- integrate + resolve against tiles, axis by axis ----
@@ -149,6 +153,9 @@ class Player {
     // (the player sinks ~1px, snaps, repeats), which starved the power meter.
     this.onGround = this._probeGround(level);
     if (this.onGround && this.vy > 0) this.vy = 0; // pin to the floor, no jitter
+
+    // Level ceiling: flight must never carry you off the top of the screen.
+    if (this.y < 0) { this.y = 0; if (this.vy < 0) this.vy = 0; }
 
     if (this.invuln > 0) this.invuln--;
     this.animT += Math.abs(this.vx) * 0.15 + 0.05;

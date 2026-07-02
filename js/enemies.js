@@ -42,7 +42,7 @@ class Enemy {
     }
 
     // gravity for both
-    this.vy = Math.min(PlayerNS.PHYS.maxFall, this.vy + PlayerNS.PHYS.gravity);
+    this.vy = Math.min(PlayerNS.PHYS.maxFall, this.vy + PlayerNS.PHYS.gravityFall);
     this.onGround = false;
     this.y += this.vy;
     const tx0 = Math.floor(this.x / Level.TILE);
