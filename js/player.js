@@ -29,21 +29,17 @@ const PHYS = {
   friction: 0.55,
   walkMax: 2.1,
   runMax: 3.6,
-  jumpVel: -7.1,
-  jumpCut: 0.45,      // multiply upward vel when jump released (variable height)
   coyoteTime: 6,      // frames after leaving a ledge you can still jump
-  jumpBuffer: 6,      // frames a jump press is remembered before landing
-  // Flight is charge-and-release: hold jump past the apex to hover-charge PWR,
-  // release to launch. Everything scales with how full the meter got.
+  // Charged jump: hold jump on the ground to fill PWR (it stays full while
+  // held); release to leap. Height AND apex hang time scale with the charge.
+  // A quick tap = a normal jump; a full charge = a high, floaty jump.
   meterMax: 100,
-  chargeRate: 3.6,    // PWR filled per frame while hover-charging (~28f to full)
-  hoverGravity: 0.14, // gentle sink while charging (buys time to charge midair)
-  hoverMaxFall: 2.0,  // cap sink speed while charging
-  flyThreshold: 18,   // minimum PWR at release to launch into flight at all
-  flyLaunch: -6.4,    // upward launch impulse at full charge (scaled by charge)
-  flyTimeMax: 80,     // frames of floaty flight at full charge (scaled by charge)
-  flyGravity: 0.24,   // reduced gravity during the soar, so the launch arcs
-  flyMaxUp: -4.4,     // (kept for clamps) cap climb speed
+  chargeRate: 2.2,    // PWR filled per frame while holding on the ground (~45f to full)
+  jumpMin: -7.1,      // launch velocity for a quick tap (a normal jump)
+  jumpMax: -9.9,      // launch velocity at full charge (a high jump)
+  hangBand: 1.7,      // |vy| below this counts as "at the apex"
+  hangGravity: 0.12,  // reduced gravity during hang time (the float at the top)
+  hangMax: 42,        // frames of hang time at full charge (scaled by charge)
 };
 
 const TIER = { SMALL: 0, ARMORED: 1, MODULE: 2 };
@@ -58,10 +54,9 @@ class Player {
     this.tier = TIER.SMALL;
     this.module = null;       // 'jet' | 'drill' | null
     this.meter = 0;
-    this.charging = false;    // hover-charging PWR (holding jump past the apex)
-    this.flying = 0;          // frames of flight remaining
+    this.charging = false;    // holding jump on the ground to charge a leap
+    this.hang = 0;            // frames of apex hang time remaining
     this.coyote = 0;
-    this.buffer = 0;
     this.invuln = 0;          // i-frames after taking a hit
     this.animT = 0;
     this.dead = false;
@@ -111,51 +106,39 @@ class Player {
       else if (this.vx < 0) this.vx = Math.min(0, this.vx + PHYS.friction);
     }
 
-    // ---- jump: coyote time + input buffering ----
+    // ---- coyote timer (small grace to still jump just after a ledge) ----
     if (this.onGround) this.coyote = PHYS.coyoteTime; else if (this.coyote > 0) this.coyote--;
-    if (Input.justPressed('jump')) this.buffer = PHYS.jumpBuffer; else if (this.buffer > 0) this.buffer--;
 
-    if (this.buffer > 0 && this.coyote > 0) {
-      this.vy = PHYS.jumpVel;
-      this.onGround = false;
-      this.coyote = 0; this.buffer = 0;
-      Sfx.jump();
-    }
-    // variable jump height: releasing jump early cuts the rise
-    if (Input.justReleased('jump') && this.vy < 0) this.vy *= PHYS.jumpCut;
-
-    // ---- charge & fly ----
-    // Hold jump PAST the apex (once you start descending) to hover-charge PWR;
-    // the longer you hold, the fuller it gets. Release to launch into flight,
-    // higher and longer the more you charged. A normal jump — released at or
-    // before the apex — never charges, so plain jumping is unaffected.
+    // ---- charged jump ----
+    // HOLD jump on the ground to fill PWR; it charges up and STAYS full while
+    // held. RELEASE to leap: both the launch height and the apex hang time
+    // scale with how full the charge got. A quick tap gives a normal jump.
     const holding = held('jump');
-    const canCharge = !this.onGround && this.flying <= 0 && this.vy >= 0 && holding;
-    if (canCharge) {
+    if (holding && this.onGround) {
       this.charging = true;
       this.meter = Math.min(PHYS.meterMax,
-        this.meter + PHYS.chargeRate * (this.module === 'jet' ? 1.4 : 1));
-    } else if (this.charging && Input.justReleased('jump')) {
-      this.charging = false;
-      if (this.meter >= PHYS.flyThreshold) {              // release -> launch
-        const t = this.meter / PHYS.meterMax;             // 0..1 charge fraction
-        this.flying = Math.round(PHYS.flyTimeMax * t) + 8;
-        this.vy = PHYS.flyLaunch * t;
-        Sfx.boost();
-      }
-      this.meter = 0;
-    } else if (this.charging && !holding) {               // released without an edge
-      this.charging = false; this.meter = 0;
+        this.meter + PHYS.chargeRate * (this.module === 'jet' ? 1.5 : 1));
     }
-    if (this.onGround) { this.charging = false; this.meter = 0; }
+    if (Input.justReleased('jump') && this.charging && (this.onGround || this.coyote > 0)) {
+      const t = this.meter / PHYS.meterMax;                // 0..1 charge fraction
+      this.vy = PHYS.jumpMin + (PHYS.jumpMax - PHYS.jumpMin) * t;
+      this.hang = Math.round(PHYS.hangMax * t);            // hang time scales too
+      this.onGround = false; this.coyote = 0;
+      this.charging = false; this.meter = 0;
+      Sfx.jump();
+    }
+    // cancel a charge if the button is up or we lost the ground without leaping
+    if (!holding && this.charging) { this.charging = false; this.meter = 0; }
+    if (this.charging && !this.onGround && this.coyote <= 0) { this.charging = false; this.meter = 0; }
 
-    // ---- vertical acceleration: flight soar, hover-charge sink, or gravity ----
-    if (this.flying > 0) {
-      this.flying--;
-      this.vy += PHYS.flyGravity;                         // reduced gravity: arcs
-    } else if (this.charging) {
-      this.vy += PHYS.hoverGravity;                       // slow sink while charging
-      if (this.vy > PHYS.hoverMaxFall) this.vy = PHYS.hoverMaxFall;
+    // ---- vertical acceleration, with apex hang time ----
+    if (this.vy < -PHYS.hangBand) {
+      this.vy += PHYS.gravityUp;                            // rising hard
+    } else if (this.vy > PHYS.hangBand) {
+      this.vy += PHYS.gravityFall;                          // falling
+    } else if (this.hang > 0) {
+      this.hang--;                                          // near apex: float
+      this.vy += PHYS.hangGravity;
     } else {
       this.vy += this.vy < 0 ? PHYS.gravityUp : PHYS.gravityFall;
     }

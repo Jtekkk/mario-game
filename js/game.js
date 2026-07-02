@@ -286,7 +286,7 @@ const Game = {
       const r = 8 + pct * 7 + Math.sin(this.frame * 0.5) * 1.5;
       ctx.save();
       ctx.globalAlpha = 0.35 + pct * 0.4;
-      ctx.strokeStyle = pct >= PlayerNS.PHYS.flyThreshold / 100 ? '#8affa0' : '#5adcff';
+      ctx.strokeStyle = pct >= 1 ? '#ffe066' : pct >= 0.5 ? '#8affa0' : '#5adcff';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
       // rising sparks
@@ -297,8 +297,8 @@ const Game = {
       }
       ctx.restore();
     }
-    // jet flame while flying
-    if (p.flying > 0) {
+    // thruster flame during the floaty apex (hang time) of a charged jump
+    if (p.hang > 0) {
       const fl = (this.frame % 6 < 3) ? Art.FLAME.a : Art.FLAME.b;
       ctx.drawImage(fl, Math.round(p.x + 2), Math.round(p.y + p.h - 1));
     }
@@ -337,22 +337,18 @@ const Game = {
     text('TIME ' + String(Math.ceil(this.time / 60)).padStart(3, '0'), 120, 6, Art.PAL.w);
     text('BEST ' + this.best, 220, 6, Art.PAL.e);
 
-    // charge meter: fills while hover-charging, release to fly
+    // jump-charge meter: fills while holding on the ground, release to leap
     const mx = 6, my = 15, mw = 90, mh = 4;
-    const thresh = PlayerNS.PHYS.flyThreshold / PlayerNS.PHYS.meterMax;
     ctx.fillStyle = '#101830';
     ctx.fillRect(mx, my, mw, mh);
     const pct = p.meter / PlayerNS.PHYS.meterMax;
-    // marker for the minimum charge needed to fly
-    ctx.fillStyle = '#31406e';
-    ctx.fillRect(mx + Math.round(mw * thresh), my - 1, 1, mh + 2);
     ctx.fillStyle = pct >= 1 ? (this.frame % 8 < 4 ? '#ffe066' : '#ff9a3c')
-                  : pct >= thresh ? '#78e68c' : '#5adcff';
+                  : pct >= 0.5 ? '#78e68c' : '#5adcff';
     ctx.fillRect(mx, my, Math.round(mw * pct), mh);
     text('PWR', mx + mw + 4, my - 1, p.charging ? Art.PAL.o : Art.PAL.m);
-    if (p.flying > 0) text('FLY!', mx + mw + 26, my - 1, Art.PAL.e);
-    else if (p.charging && pct >= thresh && this.frame % 10 < 6) text('RELEASE!', mx + mw + 26, my - 1, Art.PAL.g);
-    else if (p.charging) text('HOLD', mx + mw + 26, my - 1, Art.PAL.o);
+    if (p.charging && pct >= 1 && this.frame % 10 < 6) text('MAX!', mx + mw + 26, my - 1, Art.PAL.o);
+    else if (p.charging) text('HOLD', mx + mw + 26, my - 1, Art.PAL.e);
+    else if (p.hang > 0) text('HANG', mx + mw + 26, my - 1, Art.PAL.e);
 
     // tier indicator
     const tierName = ['SMALL', 'ARMORED', p.module ? p.module.toUpperCase() : 'MODULE'][p.tier];
@@ -371,8 +367,8 @@ const Game = {
     text('A FACTORY RUN', VIEW_W / 2 - 39, 130, Art.PAL.w);
     if (this.frame % 60 < 40) text('PRESS ENTER TO START', VIEW_W / 2 - 60, 160, Art.PAL.o);
     text('ARROWS MOVE   Z JUMP   X RUN', VIEW_W / 2 - 84, 185, Art.PAL.m);
-    text('JUMP THEN HOLD PAST THE PEAK TO CHARGE', VIEW_W / 2 - 114, 198, Art.PAL.m);
-    text('RELEASE TO FLY', VIEW_W / 2 - 42, 208, Art.PAL.e);
+    text('HOLD JUMP TO CHARGE POWER', VIEW_W / 2 - 75, 198, Art.PAL.m);
+    text('RELEASE FOR A HIGH JUMP WITH HANG TIME', VIEW_W / 2 - 114, 208, Art.PAL.e);
   },
 
   _drawBanner(title, sub, color) {
