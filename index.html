@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BOLT — A Factory Run</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #06080f;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: #9fb0d0;
+  }
+  h1 { font-size: 14px; letter-spacing: 3px; margin: 12px 0 8px; color: #5adcff; }
+  #game {
+    image-rendering: pixelated;
+    border: 2px solid #22305c;
+    border-radius: 4px;
+    box-shadow: 0 0 40px rgba(60,120,255,0.25);
+    max-width: 96vw; height: auto;
+  }
+  .hint { font-size: 11px; margin: 10px 0 16px; opacity: 0.7; text-align: center; line-height: 1.6; }
+  .hint b { color: #ffb040; }
+  a { color: #5adcff; }
+</style>
+</head>
+<body>
+  <h1>BOLT · A FACTORY RUN</h1>
+  <canvas id="game"></canvas>
+  <div class="hint">
+    <b>←/→</b> move &nbsp; <b>Z/Space</b> jump &nbsp; <b>X/Shift</b> run &nbsp; <b>M</b> mute &nbsp; <b>R</b> restart<br>
+    Hold run to charge <b>PWR</b> — when it's full, jump in mid-air to <b>fly</b>. Grab modules for armor &amp; abilities.
+  </div>
+
+  <!-- Loaded as classic scripts (no build step) so index.html runs from file:// too. Order matters. -->
+  <script src="js/pixel.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/level.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/enemies.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

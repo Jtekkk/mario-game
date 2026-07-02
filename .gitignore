@@ -1,0 +1,10 @@
+# test-only tooling (the game itself has no dependencies)
+node_modules/
+package.json
+package-lock.json
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+.idea/
