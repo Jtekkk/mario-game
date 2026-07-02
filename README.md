@@ -23,7 +23,7 @@ No build step, no dependencies. Either:
 | Move | ← / → (or A / D) |
 | Jump | Z / Space (hold for higher; release early to hop) |
 | Run | X / Shift |
-| Fly | Charge **PWR** by running, then press Jump in mid-air |
+| Fly | Jump, then **keep holding** past the peak to charge **PWR**, and **release to fly** (higher & longer the more you charge) |
 | Restart | R |
 | Mute | M |
 | Start | Enter |
@@ -42,12 +42,13 @@ Gamepad is supported too (d-pad/stick, A = jump, X/bumpers = run).
 | `js/sound.js` | Oscillator SFX synth (no audio files) | Compact APU-style sound |
 
 ## Design pillars
-- **Run to charge, commit to fly.** Holding run on solid ground fills PWR; full
-  meter unlocks a short flight window when you jump in the air.
+- **Charge and release to fly.** Jump, then keep holding past the peak to
+  hover-charge PWR; release to launch. The more you charge, the higher and
+  longer you fly — great for reaching high bolts and secret routes.
 - **Power tiers.** Small → Armored (a free hit) → Module (armored + an ability
   like the jet or drill). Getting hit drops you one tier instead of killing you.
-- **Teach → stretch → test.** A clean speed runway teaches the meter; the brick
-  "fly wall" rewards using it; the finale tests everything.
+- **Teach → stretch → test.** An early run teaches movement; the brick "fly wall"
+  offers a climb-or-fly choice; the finale tests everything.
 
 ## Roadmap ideas
 - More levels + a small world-map hub (the meta-progression lesson)

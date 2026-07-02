@@ -279,7 +279,25 @@ const Game = {
     if (!p.onGround) spr = set.jump;
     else if (Math.abs(p.vx) > 0.3) spr = (Math.floor(p.animT) % 2) ? set.walk : set.idle;
 
-    // jet flame while boosting
+    // charging cue: a pulsing ring that grows and brightens with the charge
+    if (p.charging) {
+      const pct = p.meter / PlayerNS.PHYS.meterMax;
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      const r = 8 + pct * 7 + Math.sin(this.frame * 0.5) * 1.5;
+      ctx.save();
+      ctx.globalAlpha = 0.35 + pct * 0.4;
+      ctx.strokeStyle = pct >= PlayerNS.PHYS.flyThreshold / 100 ? '#8affa0' : '#5adcff';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      // rising sparks
+      ctx.fillStyle = '#bff4ff';
+      for (let i = 0; i < 3; i++) {
+        const a = this.frame * 0.2 + i * 2.1;
+        ctx.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r), 1, 1);
+      }
+      ctx.restore();
+    }
+    // jet flame while flying
     if (p.flying > 0) {
       const fl = (this.frame % 6 < 3) ? Art.FLAME.a : Art.FLAME.b;
       ctx.drawImage(fl, Math.round(p.x + 2), Math.round(p.y + p.h - 1));
@@ -319,15 +337,22 @@ const Game = {
     text('TIME ' + String(Math.ceil(this.time / 60)).padStart(3, '0'), 120, 6, Art.PAL.w);
     text('BEST ' + this.best, 220, 6, Art.PAL.e);
 
-    // power meter (the run/flight gauge)
+    // charge meter: fills while hover-charging, release to fly
     const mx = 6, my = 15, mw = 90, mh = 4;
+    const thresh = PlayerNS.PHYS.flyThreshold / PlayerNS.PHYS.meterMax;
     ctx.fillStyle = '#101830';
     ctx.fillRect(mx, my, mw, mh);
     const pct = p.meter / PlayerNS.PHYS.meterMax;
-    ctx.fillStyle = pct >= 1 ? (this.frame % 8 < 4 ? '#ffe066' : '#ff9a3c') : '#5adcff';
+    // marker for the minimum charge needed to fly
+    ctx.fillStyle = '#31406e';
+    ctx.fillRect(mx + Math.round(mw * thresh), my - 1, 1, mh + 2);
+    ctx.fillStyle = pct >= 1 ? (this.frame % 8 < 4 ? '#ffe066' : '#ff9a3c')
+                  : pct >= thresh ? '#78e68c' : '#5adcff';
     ctx.fillRect(mx, my, Math.round(mw * pct), mh);
-    text('PWR', mx + mw + 4, my - 1, pct >= 1 ? Art.PAL.o : Art.PAL.m);
+    text('PWR', mx + mw + 4, my - 1, p.charging ? Art.PAL.o : Art.PAL.m);
     if (p.flying > 0) text('FLY!', mx + mw + 26, my - 1, Art.PAL.e);
+    else if (p.charging && pct >= thresh && this.frame % 10 < 6) text('RELEASE!', mx + mw + 26, my - 1, Art.PAL.g);
+    else if (p.charging) text('HOLD', mx + mw + 26, my - 1, Art.PAL.o);
 
     // tier indicator
     const tierName = ['SMALL', 'ARMORED', p.module ? p.module.toUpperCase() : 'MODULE'][p.tier];
@@ -346,7 +371,8 @@ const Game = {
     text('A FACTORY RUN', VIEW_W / 2 - 39, 130, Art.PAL.w);
     if (this.frame % 60 < 40) text('PRESS ENTER TO START', VIEW_W / 2 - 60, 160, Art.PAL.o);
     text('ARROWS MOVE   Z JUMP   X RUN', VIEW_W / 2 - 84, 185, Art.PAL.m);
-    text('CHARGE PWR THEN JUMP MIDAIR TO FLY', VIEW_W / 2 - 102, 198, Art.PAL.m);
+    text('JUMP THEN HOLD PAST THE PEAK TO CHARGE', VIEW_W / 2 - 114, 198, Art.PAL.m);
+    text('RELEASE TO FLY', VIEW_W / 2 - 42, 208, Art.PAL.e);
   },
 
   _drawBanner(title, sub, color) {

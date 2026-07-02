@@ -33,12 +33,17 @@ const PHYS = {
   jumpCut: 0.45,      // multiply upward vel when jump released (variable height)
   coyoteTime: 6,      // frames after leaving a ledge you can still jump
   jumpBuffer: 6,      // frames a jump press is remembered before landing
+  // Flight is charge-and-release: hold jump past the apex to hover-charge PWR,
+  // release to launch. Everything scales with how full the meter got.
   meterMax: 100,
-  meterGain: 1.9,     // per frame while running at speed
-  meterDrain: 1.2,    // per frame when not
-  flyTime: 100,       // frames of boosted flight when meter is full (a burst)
-  flyThrust: -0.6,    // lift accel while boosting + holding jump
-  flyMaxUp: -3.5,     // cap on climb speed while boosting
+  chargeRate: 3.6,    // PWR filled per frame while hover-charging (~28f to full)
+  hoverGravity: 0.14, // gentle sink while charging (buys time to charge midair)
+  hoverMaxFall: 2.0,  // cap sink speed while charging
+  flyThreshold: 18,   // minimum PWR at release to launch into flight at all
+  flyLaunch: -6.4,    // upward launch impulse at full charge (scaled by charge)
+  flyTimeMax: 80,     // frames of floaty flight at full charge (scaled by charge)
+  flyGravity: 0.24,   // reduced gravity during the soar, so the launch arcs
+  flyMaxUp: -4.4,     // (kept for clamps) cap climb speed
 };
 
 const TIER = { SMALL: 0, ARMORED: 1, MODULE: 2 };
@@ -53,6 +58,7 @@ class Player {
     this.tier = TIER.SMALL;
     this.module = null;       // 'jet' | 'drill' | null
     this.meter = 0;
+    this.charging = false;    // hover-charging PWR (holding jump past the apex)
     this.flying = 0;          // frames of flight remaining
     this.coyote = 0;
     this.buffer = 0;
@@ -105,14 +111,6 @@ class Player {
       else if (this.vx < 0) this.vx = Math.min(0, this.vx + PHYS.friction);
     }
 
-    // ---- run/power meter: charge while running fast on the ground ----
-    if (this._running && Math.abs(this.vx) > PHYS.walkMax && this.onGround) {
-      this.meter = Math.min(PHYS.meterMax, this.meter + PHYS.meterGain);
-    } else if (this.flying <= 0) {
-      this.meter = Math.max(0, this.meter - PHYS.meterDrain);
-    }
-    const charged = this.meter >= PHYS.meterMax;
-
     // ---- jump: coyote time + input buffering ----
     if (this.onGround) this.coyote = PHYS.coyoteTime; else if (this.coyote > 0) this.coyote--;
     if (Input.justPressed('jump')) this.buffer = PHYS.jumpBuffer; else if (this.buffer > 0) this.buffer--;
@@ -126,20 +124,38 @@ class Player {
     // variable jump height: releasing jump early cuts the rise
     if (Input.justReleased('jump') && this.vy < 0) this.vy *= PHYS.jumpCut;
 
-    // ---- flight: when charged, press jump in the air to boost ----
-    if (charged && !this.onGround && this.flying <= 0 &&
-        (Input.justPressed('jump') || (this.module === 'jet' && held('jump') && this.vy > 0))) {
-      this.flying = PHYS.flyTime;
+    // ---- charge & fly ----
+    // Hold jump PAST the apex (once you start descending) to hover-charge PWR;
+    // the longer you hold, the fuller it gets. Release to launch into flight,
+    // higher and longer the more you charged. A normal jump — released at or
+    // before the apex — never charges, so plain jumping is unaffected.
+    const holding = held('jump');
+    const canCharge = !this.onGround && this.flying <= 0 && this.vy >= 0 && holding;
+    if (canCharge) {
+      this.charging = true;
+      this.meter = Math.min(PHYS.meterMax,
+        this.meter + PHYS.chargeRate * (this.module === 'jet' ? 1.4 : 1));
+    } else if (this.charging && Input.justReleased('jump')) {
+      this.charging = false;
+      if (this.meter >= PHYS.flyThreshold) {              // release -> launch
+        const t = this.meter / PHYS.meterMax;             // 0..1 charge fraction
+        this.flying = Math.round(PHYS.flyTimeMax * t) + 8;
+        this.vy = PHYS.flyLaunch * t;
+        Sfx.boost();
+      }
       this.meter = 0;
-      Sfx.boost();
+    } else if (this.charging && !holding) {               // released without an edge
+      this.charging = false; this.meter = 0;
     }
-    // ---- vertical accel: flight lift OR asymmetric gravity ----
-    if (this.flying > 0) this.flying--;
-    if (this.flying > 0 && held('jump')) {
-      // Boosting: lift replaces gravity, so holding jump climbs and releasing
-      // lets you glide down — controllable flight rather than a fixed hop.
-      this.vy += PHYS.flyThrust;
-      if (this.vy < PHYS.flyMaxUp) this.vy = PHYS.flyMaxUp;
+    if (this.onGround) { this.charging = false; this.meter = 0; }
+
+    // ---- vertical acceleration: flight soar, hover-charge sink, or gravity ----
+    if (this.flying > 0) {
+      this.flying--;
+      this.vy += PHYS.flyGravity;                         // reduced gravity: arcs
+    } else if (this.charging) {
+      this.vy += PHYS.hoverGravity;                       // slow sink while charging
+      if (this.vy > PHYS.hoverMaxFall) this.vy = PHYS.hoverMaxFall;
     } else {
       this.vy += this.vy < 0 ? PHYS.gravityUp : PHYS.gravityFall;
     }
