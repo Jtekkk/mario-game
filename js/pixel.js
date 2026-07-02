@@ -214,5 +214,45 @@ const MODULE = {
   drill: moduleSprite('p'),
 };
 
+// ---- extra palette for power-up props ----
+const PAL2 = Object.assign({}, PAL, {
+  k: [255, 150, 190],  // pig pink
+  n: [40, 40, 52],     // near-black (bee stripes, outlines)
+  y: [255, 220, 70],   // bee yellow
+});
+
+// "Pig" mount (original), facing right.
+const PIG = bakeSprite({ pal: PAL2, rows: [
+  '....nnnnnnnn..',
+  '..nnkkkkkkkknn',
+  '.nkkkkkkkkkkwn',   // snout highlight
+  '.nkkwnkkkkkkkn',   // eye
+  'nkkkkkkkkkkkkn',
+  'nkkkkkkkkkkkkn',
+  '.nkkkkkkkkkkn.',
+  '.nn.nn..nn.nn.',
+  '..n.n....n.n..',
+]});
+
+// A single bee.
+const BEE = bakeSprite({ pal: PAL2, rows: [
+  'w.yy.w',
+  '.ynyn.',
+  'ynynyn',
+  '.yyyy.',
+  '..nn..',
+]});
+
+// Secret power-up capsule (glows; drawn with a pulsing aura in game.js).
+const CAPSULE = bakeSprite({ pal: PAL2, rows: [
+  '.dwwwwd.',
+  'dwe..ewd',
+  'we.oo.ew',
+  'we.oo.ew',
+  'dwe..ewd',
+  '.dwwwwd.',
+]});
+
 // Expose as a namespace.
-const Art = { PIXEL_SCALE, PAL, HERO, FLAME, CRAWLER, HOPPER, BOLT, MODULE, flipSprite, bakeSprite };
+const Art = { PIXEL_SCALE, PAL, PAL2, HERO, FLAME, CRAWLER, HOPPER, BOLT, MODULE,
+              PIG, BEE, CAPSULE, flipSprite, bakeSprite };

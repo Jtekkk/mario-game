@@ -1,8 +1,9 @@
 # BOLT · A Factory Run
 
 A small, original 2D platformer built in vanilla JavaScript + HTML5 Canvas.
-You play **Bolt**, a factory robot who sprints, stomps, collects hardware
-**modules**, and — once the **PWR** meter is charged — takes off and *flies*.
+You play **Bolt**, a factory robot who sprints, stomps, and charges up big
+hang-time jumps across a **10-level campaign** — and every level hides a
+**secret power-up** on a high ledge, from laser eyes to a mini nuke.
 
 It was built as a learning exercise: we examined a real NES cartridge to
 understand how an 8-bit platformer was engineered, then rebuilt those
@@ -21,39 +22,54 @@ No build step, no dependencies. Either:
 | Action | Keys |
 |---|---|
 | Move | ← / → (or A / D) |
-| Jump | Z / Space (hold for higher; release early to hop) |
+| Jump | Z / Space |
+| Charged jump | **Hold** jump to fill **PWR** (it stays full), **release** for a high jump with hang time |
 | Run | X / Shift |
-| Fly | Jump, then **keep holding** past the peak to charge **PWR**, and **release to fly** (higher & longer the more you charge) |
-| Restart | R |
-| Mute | M |
-| Start | Enter |
+| Restart level | R |
+| Start / advance | Enter |
 
-Gamepad is supported too (d-pad/stick, A = jump, X/bumpers = run).
+### Secret power-ups (one per level, fired by its own key)
+Each level hides a `*` capsule up high — reach it with a charged jump, then keep
+it in your inventory and use it any time:
+
+| Key | Power-up | Effect |
+|---|---|---|
+| **F** | Laser Eyes | Beam kills the nearest enemy ahead (repeatable) |
+| **H** | Heli Hat | Hold to spin the rotor and hover (limited fuel) |
+| **K** | Killer Bees | Homing swarm — 3 uses |
+| **J** | Juke | Dodge: brief invulnerability + sidestep |
+| **L** | Light Shield | A bubble that blocks hits for a bit — 2 uses |
+| **P** | Ride Pig | Toggle a faster mount that flattens enemies |
+| **B** | Turbo Dash | Dash through enemies, briefly invincible |
+| **O** | Moon Destruct | Blow up the moon; debris wipes on-screen enemies |
+| **N** | Mini Nuke | Kill every enemy in the level |
+| **C** | Magic Carpet | Skip the next 2 levels |
 
 ## What's inside (and which lesson it applies)
 
 | File | Role | Lesson |
 |---|---|---|
 | `js/pixel.js` | Original sprites as character grids, baked to canvases | Tiny reusable tiles |
-| `js/level.js` | Tile alphabet + level as a grid of indices, integer collision | Levels as data |
-| `js/player.js` | Physics state machine: accel/friction, variable jump, coyote time, jump buffer, the PWR meter + power tiers | Run-meter reward; tiers as health |
+| `js/level.js` | Tile alphabet + a 10-level campaign as grids of indices | Levels as data |
+| `js/player.js` | Physics state machine: accel/friction, charged jump + hang time, and the power-up hooks (heli/pig/dash/shield) | Game feel + abilities |
+| `js/powerups.js` | The 10 secret abilities: metadata, keys, tuning, fresh state | — |
 | `js/enemies.js` | Legible patrol/hop patterns; stomp-to-defeat | Readable enemy patterns |
-| `js/game.js` | Camera, rendering, particles, states, and the pinned HUD | Scanline-IRQ split screen |
+| `js/game.js` | Level progression, inventory, ability effects, camera, and the pinned HUD | Scanline-IRQ split screen |
 | `js/sound.js` | Oscillator SFX synth (no audio files) | Compact APU-style sound |
 
 ## Design pillars
-- **Charge and release to fly.** Jump, then keep holding past the peak to
-  hover-charge PWR; release to launch. The more you charge, the higher and
-  longer you fly — great for reaching high bolts and secret routes.
-- **Power tiers.** Small → Armored (a free hit) → Module (armored + an ability
-  like the jet or drill). Getting hit drops you one tier instead of killing you.
-- **Teach → stretch → test.** An early run teaches movement; the brick "fly wall"
-  offers a climb-or-fly choice; the finale tests everything.
+- **Charge and release for a high jump.** Hold jump to fill PWR (it stays full);
+  release for a high, floaty jump. The more you charge, the higher you leap —
+  which is exactly how you reach each level's secret power-up.
+- **Find it, keep it, use it.** Every level hides one ability up high. Collect it
+  and it stays in your inventory, fired by its own key — the arsenal grows.
+- **10 levels, escalating.** Each level introduces its own secret and gets a
+  little longer and busier; reach the goal to advance.
 
 ## Roadmap ideas
-- More levels + a small world-map hub (the meta-progression lesson)
-- The **drill** module as a distinct level path (bulldoze through blocks)
-- Moving platforms, checkpoints, and a boss that tests one mechanic
+- A world-map hub between levels (the meta-progression lesson)
+- Per-level themed tilesets / backgrounds
+- A boss stage that forces you to use a specific power-up
 - Simple level editor that reads/writes the text-grid format in `js/level.js`
 
 ## Credits

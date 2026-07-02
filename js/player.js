@@ -62,15 +62,26 @@ class Player {
     this.dead = false;
     this.bolts = 0;
     this.spawnX = x; this.spawnY = y;
+    // ---- power-up state ----
+    this.inv = {};            // collected abilities: name -> state
+    this.heliOn = false;      // set by game each frame while H held + owned
+    this.heliFuel = Powerups.PWR.heliFuelMax;
+    this.riding = false;      // pig mount
+    this.dashing = 0;         // turbo-dash frames remaining
+    this.shieldTimer = 0;     // light-shield frames remaining
   }
 
-  get maxSpeed() { return this._running ? PHYS.runMax : PHYS.walkMax; }
+  get maxSpeed() {
+    if (this.riding) return Powerups.PWR.pigSpeed;
+    return this._running ? PHYS.runMax : PHYS.walkMax;
+  }
 
   // Rectangle in world space.
   get rect() { return { x: this.x, y: this.y, w: this.w, h: this.h }; }
 
   hurt() {
     if (this.invuln > 0) return false;
+    if (this.shieldTimer > 0) { this.invuln = 24; return false; } // shield absorbs
     this.invuln = 90;
     if (this.tier > TIER.SMALL) {
       this.tier -= 1;
@@ -92,19 +103,26 @@ class Player {
     const held = Input.down.bind(Input);
     this._running = held('run');
 
-    // ---- horizontal: accelerate toward input, apply friction otherwise ----
-    const accel = this._running ? PHYS.runAccel : PHYS.walkAccel;
-    let dir = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
-    if (dir !== 0) {
-      this.vx += dir * accel;
-      this.face = dir;
-      const m = this.maxSpeed;
-      if (this.vx > m) this.vx = m;
-      if (this.vx < -m) this.vx = -m;
+    // ---- horizontal ----
+    if (this.dashing > 0) {
+      // Turbo dash: committed forward burst, ignores normal accel/friction.
+      this.dashing--;
+      this.vx = this.face * Powerups.PWR.dashSpeed;
     } else {
-      if (this.vx > 0) this.vx = Math.max(0, this.vx - PHYS.friction);
-      else if (this.vx < 0) this.vx = Math.min(0, this.vx + PHYS.friction);
+      const accel = this._running ? PHYS.runAccel : PHYS.walkAccel;
+      let dir = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
+      if (dir !== 0) {
+        this.vx += dir * accel;
+        this.face = dir;
+        const m = this.maxSpeed;
+        if (this.vx > m) this.vx = m;
+        if (this.vx < -m) this.vx = -m;
+      } else {
+        if (this.vx > 0) this.vx = Math.max(0, this.vx - PHYS.friction);
+        else if (this.vx < 0) this.vx = Math.min(0, this.vx + PHYS.friction);
+      }
     }
+    if (this.shieldTimer > 0) this.shieldTimer--;
 
     // ---- coyote timer (small grace to still jump just after a ledge) ----
     if (this.onGround) this.coyote = PHYS.coyoteTime; else if (this.coyote > 0) this.coyote--;
@@ -143,6 +161,17 @@ class Player {
       this.vy += this.vy < 0 ? PHYS.gravityUp : PHYS.gravityFall;
     }
     if (this.vy > PHYS.maxFall) this.vy = PHYS.maxFall;
+
+    // ---- helicopter hat: hold H to spin the rotor and hover ----
+    if (this.heliOn && this.heliFuel > 0 && !this.onGround) {
+      this.vy += Powerups.PWR.heliLift;                     // lift counters gravity
+      if (this.vy > Powerups.PWR.heliFallCap) this.vy = Powerups.PWR.heliFallCap;
+      if (this.vy < -2.6) this.vy = -2.6;                   // cap climb speed
+      this.heliFuel = Math.max(0, this.heliFuel - Powerups.PWR.heliDrain);
+    }
+    if (this.onGround) {
+      this.heliFuel = Math.min(Powerups.PWR.heliFuelMax, this.heliFuel + Powerups.PWR.heliRefill);
+    }
 
     // ---- integrate + resolve against tiles, axis by axis ----
     this._moveAxis(level, this.vx, 0);

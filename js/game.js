@@ -19,35 +19,63 @@ ctx.imageSmoothingEnabled = false;
 // Pre-flip hero sprites for facing left.
 const HERO_L = { idle: Art.flipSprite(Art.HERO.idle), walk: Art.flipSprite(Art.HERO.walk), jump: Art.flipSprite(Art.HERO.jump) };
 
-const State = { TITLE: 'title', PLAY: 'play', WIN: 'win', DEAD: 'dead' };
+const State = { TITLE: 'title', PLAY: 'play', CLEAR: 'clear', DEAD: 'dead', COMPLETE: 'complete' };
 
 const Game = {
   state: State.TITLE,
   level: null,
+  levelIndex: 0,
   player: null,
   enemies: [],
   bolts: [],
-  modules: [],
+  secret: null,          // the hidden power-up of this level
+  inv: {},               // persistent inventory across levels
+  beams: [], bees: [], debris: [],   // active effects
+  nukeFlash: 0, moonSeq: 0,
+  banner: null, bannerT: 0,
   particles: [],
   cam: { x: 0, y: 0 },
   time: 0,
   frame: 0,
+  transition: 0,
   best: Number(localStorage.getItem('bolt_best') || 0),
 
+  // Load the current level. Inventory + bolt total persist across levels.
   load() {
-    this.level = Level.parseLevel(Level.LEVEL_1);
+    this.level = Level.parseLevel(Level.LEVELS[this.levelIndex]);
     const s = this.level.spawns;
     this.player = new PlayerNS.Player(s.player.x, s.player.y - 2);
+    this.player.inv = this.inv;                 // share the persistent inventory
+    this.player.bolts = this._totalBolts || 0;
     this.enemies = s.enemies.map(e => new Enemies.Enemy(e.x, e.y, e.kind));
     this.bolts = s.bolts.map(b => ({ x: b.x + 4, y: b.y + 4, got: false, t: 0 }));
-    this.modules = s.modules.map(m => ({ x: m.x, y: m.y, kind: m.kind, got: false, t: 0 }));
+    this.secret = s.secret ? { x: s.secret.x, y: s.secret.y, powerup: s.secret.powerup, got: false, t: 0 } : null;
+    this.beams = []; this.bees = []; this.debris = [];
+    this.nukeFlash = 0; this.moonSeq = 0;
     this.particles = [];
     this.cam = { x: 0, y: 0 };
     this.time = 300 * 60; // frames
     this.frame = 0;
   },
 
-  start() { this.load(); this.state = State.PLAY; Sfx.resume(); },
+  // Start a fresh campaign.
+  start() {
+    this.levelIndex = 0;
+    this.inv = {};
+    this._totalBolts = 0;
+    this.load();
+    this.state = State.PLAY;
+    Sfx.resume();
+  },
+
+  // Advance to a given level index (used by goal + magic carpet).
+  gotoLevel(idx) {
+    this._totalBolts = this.player.bolts;
+    if (idx >= Level.LEVELS.length) { this.state = State.COMPLETE; Sfx.win(); return; }
+    this.levelIndex = idx;
+    this.load();
+    this.state = State.PLAY;
+  },
 
   addBurst(x, y, color, n = 8) {
     for (let i = 0; i < n; i++) {
@@ -59,26 +87,37 @@ const Game = {
   update() {
     this.frame++;
     Input.beginFrame();
+    if (this.bannerT > 0) this.bannerT--;
 
     if (this.state === State.TITLE) {
       if (Input.justPressed('start') || Input.justPressed('jump')) this.start();
-      Input.endFrame();
-      return;
+      Input.endFrame(); return;
     }
-    if (this.state === State.WIN || this.state === State.DEAD) {
-      if (Input.justPressed('start') || Input.justPressed('jump') || Input.justPressed('reset')) {
-        this.state = State.TITLE;
-      }
+    if (this.state === State.CLEAR) {
+      this.transition--;
       this._updateParticles();
-      Input.endFrame();
-      return;
+      if (this.transition <= 0 || Input.justPressed('start') || Input.justPressed('jump'))
+        this.gotoLevel(this.levelIndex + 1);
+      Input.endFrame(); return;
+    }
+    if (this.state === State.DEAD) {
+      if (Input.justPressed('start') || Input.justPressed('jump') || Input.justPressed('reset')) {
+        this.load(); this.state = State.PLAY;   // retry this level, keep inventory
+      }
+      this._updateParticles(); Input.endFrame(); return;
+    }
+    if (this.state === State.COMPLETE) {
+      if (Input.justPressed('start') || Input.justPressed('jump')) this.state = State.TITLE;
+      this._updateParticles(); Input.endFrame(); return;
     }
 
     // ---- PLAY ----
-    if (Input.justPressed('reset')) { this.start(); Input.endFrame(); return; }
+    if (Input.justPressed('reset')) { this.load(); this.state = State.PLAY; Input.endFrame(); return; }
 
     const p = this.player;
     p.update(this.level);
+    this._powers();          // activate abilities from key presses
+    this._updateEffects();   // beams, bees, debris, timers
 
     // timer
     if (this.time > 0) this.time--; else p.dead = true;
@@ -86,17 +125,22 @@ const Game = {
     // enemies
     for (const e of this.enemies) {
       e.update(this.level);
-      if (!e.dead && rectsOverlap(p.rect, e.rect)) {
-        const r = e.collidePlayer(p);
-        if (r === 'stomp') this.addBurst(e.x + e.w / 2, e.y + e.h / 2, Art.PAL.o, 6);
-        else if (r === 'hit') {
-          const died = p.hurt();
-          if (p.invuln === 90) { // just got hit this frame
-            Sfx.hurt();
-            this.addBurst(p.x + p.w / 2, p.y + p.h / 2, Art.PAL.e, 8);
-          }
-          if (died) this._die();
+      if (e.dead || !rectsOverlap(p.rect, e.rect)) continue;
+      if (p.dashing > 0 || p.riding) {           // dash / pig plows through
+        e.dead = true; e.squash = 12;
+        this.addBurst(e.x + e.w / 2, e.y + e.h / 2, Art.PAL.o, 6);
+        Sfx.stomp();
+        continue;
+      }
+      const r = e.collidePlayer(p);
+      if (r === 'stomp') this.addBurst(e.x + e.w / 2, e.y + e.h / 2, Art.PAL.o, 6);
+      else if (r === 'hit') {
+        const died = p.hurt();
+        if (p.invuln === 90) { // a real hit landed this frame
+          Sfx.hurt();
+          this.addBurst(p.x + p.w / 2, p.y + p.h / 2, Art.PAL.e, 8);
         }
+        if (died) this._die();
       }
     }
 
@@ -110,15 +154,17 @@ const Game = {
       }
     }
 
-    // modules
-    for (const m of this.modules) {
-      if (m.got) continue;
-      m.t++;
-      if (rectsOverlap(p.rect, { x: m.x, y: m.y, w: 8, h: 8 })) {
-        m.got = true;
-        if (m.kind === 'shield') p.gainArmor(); else p.gainModule(m.kind);
+    // the hidden power-up of this level
+    if (this.secret && !this.secret.got) {
+      this.secret.t++;
+      if (rectsOverlap(p.rect, { x: this.secret.x - 2, y: this.secret.y - 2, w: 12, h: 12 })) {
+        this.secret.got = true;
+        const name = this.secret.powerup;
+        p.inv[name] = Powerups.freshPower(name);
+        const meta = Powerups.POWERUPS[name];
+        this._flashBanner('GOT ' + meta.label + '   PRESS [' + meta.key + ']', meta.color, 150);
         Sfx.module();
-        this.addBurst(m.x + 4, m.y + 4, Art.PAL[m.kind === 'jet' ? 'j' : m.kind === 'shield' ? 'g' : 'p'], 10);
+        this.addBurst(this.secret.x + 4, this.secret.y + 4, meta.color, 16);
       }
     }
 
@@ -126,7 +172,7 @@ const Game = {
     const ptx0 = Math.floor(p.x / Level.TILE), ptx1 = Math.floor((p.x + p.w) / Level.TILE);
     for (let tx = ptx0; tx <= ptx1; tx++) {
       const ty = Math.floor((p.y + p.h / 2) / Level.TILE);
-      if (Level.tileAt(this.level, tx, ty) === 'G') { this._win(); }
+      if (Level.tileAt(this.level, tx, ty) === 'G') { this._clearLevel(); }
     }
 
     if (p.dead && this.state === State.PLAY) this._die();
@@ -142,13 +188,162 @@ const Game = {
     Sfx.die();
     this.addBurst(this.player.x + 6, this.player.y + 7, Art.PAL.e, 14);
   },
-  _win() {
+  _clearLevel() {
     if (this.state !== State.PLAY) return;
-    this.state = State.WIN;
+    this._totalBolts = this.player.bolts;
     const score = this.player.bolts * 100 + Math.floor(this.time / 60) * 10;
     if (score > this.best) { this.best = score; localStorage.setItem('bolt_best', score); }
-    this._winScore = score;
+    if (this.levelIndex >= Level.LEVELS.length - 1) { this.state = State.COMPLETE; Sfx.win(); return; }
+    this.state = State.CLEAR;
+    this.transition = 110;
     Sfx.win();
+  },
+
+  _flashBanner(text, color, frames) { this.banner = { text, color }; this.bannerT = frames; },
+
+  // ---------- power-up activation ----------
+  _powers() {
+    const p = this.player;
+    p.heliOn = !!p.inv.heli && Input.down('heli');   // heli is a hold
+    for (const name of Powerups.POWER_ORDER) {
+      if (!p.inv[name]) continue;
+      if (Input.justPressed(name)) this._activate(name, p.inv[name]);
+    }
+  },
+
+  _activate(name, st) {
+    const p = this.player;
+    switch (name) {
+      case 'laser': {
+        if (st.cd > 0) break;
+        st.cd = Powerups.PWR.laserCd;
+        const y = p.y + 4;
+        let best = null, bestd = Powerups.PWR.laserRange;
+        for (const e of this.enemies) {
+          if (e.dead) continue;
+          const dx = (e.x + e.w / 2) - (p.x + p.w / 2);
+          if (Math.sign(dx) !== p.face) continue;
+          if (Math.abs((e.y + e.h / 2) - y) > 22) continue;
+          if (Math.abs(dx) < bestd) { bestd = Math.abs(dx); best = e; }
+        }
+        const endX = best ? best.x + best.w / 2 : p.x + p.face * Powerups.PWR.laserRange;
+        this.beams.push({ x: p.x + p.w / 2, y, x2: endX, life: 8 });
+        if (best) { best.dead = true; best.squash = 12; this.addBurst(best.x + best.w / 2, best.y, Art.PAL2.e || [90,220,255], 8); }
+        Sfx.stomp();
+        break;
+      }
+      case 'bees': {
+        if (st.ammo <= 0) break;
+        st.ammo--;
+        for (let i = 0; i < Powerups.PWR.beesCount; i++) {
+          const a = (i / Powerups.PWR.beesCount) * Math.PI * 2;
+          this.bees.push({ x: p.x + 6, y: p.y + 6, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, life: Powerups.PWR.beesLife });
+        }
+        Sfx.boost();
+        break;
+      }
+      case 'juke': {
+        if (st.cd > 0) break;
+        st.cd = Powerups.PWR.jukeCd;
+        p.invuln = Math.max(p.invuln, Powerups.PWR.jukeIframes);
+        p.vx = p.face * Powerups.PWR.jukeStep;   // quick sidestep in facing dir
+        this.addBurst(p.x + 6, p.y + 7, Powerups.POWERUPS.juke.color, 8);
+        Sfx.jump();
+        break;
+      }
+      case 'shield': {
+        if (st.ammo <= 0 || p.shieldTimer > 0) break;
+        st.ammo--;
+        p.shieldTimer = Powerups.PWR.shieldTime;
+        Sfx.module();
+        break;
+      }
+      case 'pig': {
+        p.riding = !p.riding;
+        this.addBurst(p.x + 6, p.y + 10, Powerups.POWERUPS.pig.color, 8);
+        Sfx.module();
+        break;
+      }
+      case 'dash': {
+        if (st.cd > 0) break;
+        st.cd = Powerups.PWR.dashCd;
+        p.dashing = Powerups.PWR.dashFrames;
+        p.invuln = Math.max(p.invuln, Powerups.PWR.dashFrames + 4);
+        Sfx.boost();
+        break;
+      }
+      case 'moon': {
+        if (st.ammo <= 0 || this.moonSeq > 0) break;
+        st.ammo--;
+        this.moonSeq = Powerups.PWR.moonDelay;   // charge, then rain debris
+        Sfx.boost();
+        break;
+      }
+      case 'nuke': {
+        if (st.ammo <= 0) break;
+        st.ammo--;
+        this.nukeFlash = 22;
+        for (const e of this.enemies) { if (!e.dead) { e.dead = true; e.squash = 12; } }
+        Sfx.die();
+        break;
+      }
+      case 'carpet': {
+        if (st.ammo <= 0) break;
+        st.ammo--;
+        this._flashBanner('MAGIC CARPET  SKIP 2 LEVELS', Powerups.POWERUPS.carpet.color, 90);
+        this.gotoLevel(this.levelIndex + 3);     // skip the next two
+        break;
+      }
+    }
+  },
+
+  _updateEffects() {
+    // cool down each owned ability
+    for (const name of Powerups.POWER_ORDER) {
+      const st = this.player.inv[name];
+      if (st && st.cd > 0) st.cd--;
+    }
+    // laser beams
+    for (const b of this.beams) b.life--;
+    this.beams = this.beams.filter(b => b.life > 0);
+    // bees: home to nearest enemy, kill on contact
+    for (const bee of this.bees) {
+      let tgt = null, td = 1e9;
+      for (const e of this.enemies) {
+        if (e.dead) continue;
+        const d = (e.x - bee.x) ** 2 + (e.y - bee.y) ** 2;
+        if (d < td) { td = d; tgt = e; }
+      }
+      if (tgt) {
+        const dx = (tgt.x + tgt.w / 2) - bee.x, dy = (tgt.y + tgt.h / 2) - bee.y;
+        const m = Math.hypot(dx, dy) || 1;
+        bee.vx += (dx / m) * 0.5; bee.vy += (dy / m) * 0.5;
+        const s = Math.hypot(bee.vx, bee.vy), mx = Powerups.PWR.beesSpeed;
+        if (s > mx) { bee.vx = bee.vx / s * mx; bee.vy = bee.vy / s * mx; }
+        if (td < 64) { tgt.dead = true; tgt.squash = 12; bee.life = 0; this.addBurst(tgt.x + tgt.w / 2, tgt.y, Powerups.POWERUPS.bees.color, 5); }
+      }
+      bee.x += bee.vx; bee.y += bee.vy; bee.life--;
+    }
+    this.bees = this.bees.filter(b => b.life > 0);
+    // moon destruct sequence
+    if (this.moonSeq > 0) {
+      this.moonSeq--;
+      if (this.moonSeq === 0) {
+        // spawn debris across the top of the screen; kill all ON-SCREEN enemies
+        for (let i = 0; i < 26; i++) {
+          this.debris.push({ x: this.cam.x + Math.random() * VIEW_W, y: this.cam.y - 10 - Math.random() * 40,
+                             vx: (Math.random() - 0.5) * 2, vy: 2 + Math.random() * 3, life: 90 });
+        }
+        for (const e of this.enemies) {
+          if (e.dead) continue;
+          if (e.x > this.cam.x - 8 && e.x < this.cam.x + VIEW_W + 8) { e.dead = true; e.squash = 12; }
+        }
+        this.nukeFlash = 14;
+      }
+    }
+    for (const d of this.debris) { d.x += d.vx; d.y += d.vy; d.vy += 0.12; d.life--; }
+    this.debris = this.debris.filter(d => d.life > 0);
+    if (this.nukeFlash > 0) this.nukeFlash--;
   },
 
   _updateParticles() {
@@ -182,19 +377,102 @@ const Game = {
     ctx.translate(-Math.round(this.cam.x), -Math.round(this.cam.y));
     this._drawLevel();
     this._drawBolts();
-    this._drawModules();
+    this._drawSecret();
     this._drawEnemies();
+    this._drawBees();
+    this._drawDebris();
     this._drawPlayer();
+    this._drawBeams();
     this._drawParticles();
     ctx.restore();
+
+    // full-screen effects
+    this._drawMoon();
+    if (this.nukeFlash > 0) {
+      ctx.globalAlpha = this.nukeFlash / 22 * 0.85; ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H); ctx.globalAlpha = 1;
+    }
 
     // HUD in screen space (the non-scrolling panel — the scanline-IRQ lesson).
     this._drawHUD();
 
-    if (this.state === State.WIN) this._drawBanner('SECTOR CLEARED', `SCORE ${this._winScore}   BEST ${this.best}`, Art.PAL.g);
+    if (this.state === State.CLEAR) this._drawBanner('SECTOR CLEARED', 'GET READY...', Art.PAL.g);
     if (this.state === State.DEAD) this._drawBanner('SYSTEM DOWN', 'PRESS ENTER TO RETRY', Art.PAL.j);
+    if (this.state === State.COMPLETE) this._drawBanner('CAMPAIGN COMPLETE!', `BEST ${this.best}   ENTER = TITLE`, Art.PAL.e);
+    if (this.bannerT > 0 && this.banner) this._drawTopBanner();
 
     ctx.restore();
+  },
+
+  _drawSecret() {
+    const s = this.secret;
+    if (!s || s.got) return;
+    const meta = Powerups.POWERUPS[s.powerup];
+    const bob = Math.sin(s.t * 0.09) * 2;
+    const c = meta.color;
+    // pulsing aura so the secret reads as special
+    ctx.save();
+    ctx.globalAlpha = 0.3 + Math.sin(s.t * 0.15) * 0.18;
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+    ctx.fillRect(s.x - 3, s.y - 3 + bob, 14, 14);
+    ctx.restore();
+    ctx.drawImage(Art.CAPSULE, Math.round(s.x), Math.round(s.y + bob));
+  },
+
+  _drawBeams() {
+    for (const b of this.beams) {
+      ctx.save();
+      ctx.globalAlpha = b.life / 8;
+      ctx.strokeStyle = '#ff4d5e'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x2, b.y); ctx.stroke();
+      ctx.strokeStyle = '#ffd0d0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x2, b.y); ctx.stroke();
+      ctx.restore();
+    }
+  },
+
+  _drawBees() {
+    for (const bee of this.bees) ctx.drawImage(Art.BEE, Math.round(bee.x - 3), Math.round(bee.y - 2));
+  },
+
+  _drawDebris() {
+    for (const d of this.debris) {
+      ctx.fillStyle = d.life % 4 < 2 ? '#c9d4ef' : '#8a94b4';
+      ctx.fillRect(Math.round(d.x), Math.round(d.y), 3, 3);
+    }
+  },
+
+  _drawMoon() {
+    if (this.moonSeq <= 0) return;
+    const t = 1 - this.moonSeq / Powerups.PWR.moonDelay;   // 0..1 over the sequence
+    const cx = VIEW_W - 46, cy = 40, r = 20;
+    ctx.save();
+    ctx.fillStyle = '#dfe8ff';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#b9c4e0';
+    ctx.beginPath(); ctx.arc(cx - 6, cy - 4, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 5, cy + 6, 3, 0, Math.PI * 2); ctx.fill();
+    // cracks grow as it's about to blow
+    ctx.strokeStyle = `rgba(255,${Math.round(120 - t * 120)},80,${t})`;
+    ctx.lineWidth = 1 + t * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r * t, cy - 4);
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + 4, cy + r * t);
+    ctx.stroke();
+    ctx.restore();
+  },
+
+  _drawTopBanner() {
+    const bnr = this.banner, c = bnr.color;
+    const w = bnr.text.length * 6 + 16;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, this.bannerT / 20);
+    ctx.fillStyle = 'rgba(6,10,26,0.9)';
+    ctx.fillRect(VIEW_W / 2 - w / 2, 30, w, 16);
+    ctx.strokeStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.lineWidth = 1;
+    ctx.strokeRect(VIEW_W / 2 - w / 2, 30, w, 16);
+    ctx.restore();
+    text(bnr.text, VIEW_W / 2 - bnr.text.length * 3, 34, c);
   },
 
   _drawSky() {
@@ -237,21 +515,6 @@ const Game = {
     }
   },
 
-  _drawModules() {
-    for (const m of this.modules) {
-      if (m.got) continue;
-      const bob = Math.sin(m.t * 0.08) * 2;
-      const spr = Art.MODULE[m.kind];
-      // glow
-      ctx.save();
-      ctx.globalAlpha = 0.35 + Math.sin(m.t * 0.15) * 0.15;
-      ctx.fillStyle = m.kind === 'jet' ? '#ff7a3c' : m.kind === 'shield' ? '#78e68c' : '#be82ff';
-      ctx.fillRect(m.x - 2, m.y - 2 + bob, 12, 12);
-      ctx.restore();
-      ctx.drawImage(spr, Math.round(m.x), Math.round(m.y + bob));
-    }
-  },
-
   _drawEnemies() {
     for (const e of this.enemies) {
       let spr;
@@ -279,6 +542,26 @@ const Game = {
     if (!p.onGround) spr = set.jump;
     else if (Math.abs(p.vx) > 0.3) spr = (Math.floor(p.animT) % 2) ? set.walk : set.idle;
 
+    // pig mount, drawn under the hero
+    if (p.riding) {
+      const pig = p.face < 0 ? (HERO_L._pig || (HERO_L._pig = Art.flipSprite(Art.PIG))) : Art.PIG;
+      ctx.drawImage(pig, Math.round(p.x - 1), Math.round(p.y + p.h - 4));
+    }
+    // helicopter rotor spinning above the head
+    if (p.heliOn && p.heliFuel > 0) {
+      const spin = (this.frame % 4 < 2) ? 7 : 3;
+      ctx.strokeStyle = '#cfeaff'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x + 6 - spin, p.y - 2); ctx.lineTo(p.x + 6 + spin, p.y - 2); ctx.stroke();
+      ctx.fillStyle = '#5adcff'; ctx.fillRect(p.x + 5, p.y - 3, 2, 2);
+    }
+    // dash streak
+    if (p.dashing > 0) {
+      ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = '#ffb040';
+      for (let i = 1; i <= 3; i++) ctx.fillRect(Math.round(p.x - p.face * i * 4), Math.round(p.y + 3), 3, 8);
+      ctx.restore();
+    }
+
     // charging cue: a pulsing ring that grows and brightens with the charge
     if (p.charging) {
       const pct = p.meter / PlayerNS.PHYS.meterMax;
@@ -302,17 +585,17 @@ const Game = {
       const fl = (this.frame % 6 < 3) ? Art.FLAME.a : Art.FLAME.b;
       ctx.drawImage(fl, Math.round(p.x + 2), Math.round(p.y + p.h - 1));
     }
-    // armor tint ring
-    if (p.tier >= PlayerNS.TIER.ARMORED) {
+    ctx.drawImage(spr, Math.round(p.x - 0), Math.round(p.y));
+
+    // light shield bubble
+    if (p.shieldTimer > 0) {
       ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.strokeStyle = p.tier === PlayerNS.TIER.MODULE
-        ? (p.module === 'jet' ? '#ff7a3c' : '#be82ff') : '#78e68c';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(p.x - 1), Math.round(p.y - 1), p.w + 2, p.h + 2);
+      const flick = p.shieldTimer < 40 && this.frame % 6 < 3 ? 0.25 : 0.6;
+      ctx.globalAlpha = flick;
+      ctx.strokeStyle = '#8affa0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(p.x + p.w / 2, p.y + p.h / 2, 12 + Math.sin(this.frame * 0.3), 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
     }
-    ctx.drawImage(spr, Math.round(p.x - 0), Math.round(p.y));
   },
 
   _drawParticles() {
@@ -327,32 +610,54 @@ const Game = {
   // ---- HUD: pinned to the screen, never scrolls ----
   _drawHUD() {
     const p = this.player;
-    // top band
+    // top band (taller now, to fit an inventory row)
     ctx.fillStyle = 'rgba(6,10,26,0.85)';
-    ctx.fillRect(0, 0, VIEW_W, 22);
+    ctx.fillRect(0, 0, VIEW_W, 30);
     ctx.fillStyle = '#2a3a6a';
-    ctx.fillRect(0, 22, VIEW_W, 1);
+    ctx.fillRect(0, 30, VIEW_W, 1);
 
-    text('BOLTS ' + String(p.bolts).padStart(2, '0'), 6, 6, Art.PAL.o);
-    text('TIME ' + String(Math.ceil(this.time / 60)).padStart(3, '0'), 120, 6, Art.PAL.w);
-    text('BEST ' + this.best, 220, 6, Art.PAL.e);
+    const meta = Level.LEVELS[this.levelIndex];
+    text('L' + (this.levelIndex + 1) + '/' + Level.LEVELS.length + ' ' + meta.name, 6, 4, Art.PAL.e);
+    text('BOLTS ' + String(p.bolts).padStart(2, '0'), 6, 13, Art.PAL.o);
+    text('TIME ' + String(Math.ceil(this.time / 60)).padStart(3, '0'), 92, 13, Art.PAL.w);
 
-    // jump-charge meter: fills while holding on the ground, release to leap
-    const mx = 6, my = 15, mw = 90, mh = 4;
+    // jump-charge meter
+    const mx = 6, my = 22, mw = 72, mh = 4;
     ctx.fillStyle = '#101830';
     ctx.fillRect(mx, my, mw, mh);
     const pct = p.meter / PlayerNS.PHYS.meterMax;
     ctx.fillStyle = pct >= 1 ? (this.frame % 8 < 4 ? '#ffe066' : '#ff9a3c')
                   : pct >= 0.5 ? '#78e68c' : '#5adcff';
     ctx.fillRect(mx, my, Math.round(mw * pct), mh);
-    text('PWR', mx + mw + 4, my - 1, p.charging ? Art.PAL.o : Art.PAL.m);
-    if (p.charging && pct >= 1 && this.frame % 10 < 6) text('MAX!', mx + mw + 26, my - 1, Art.PAL.o);
-    else if (p.charging) text('HOLD', mx + mw + 26, my - 1, Art.PAL.e);
-    else if (p.hang > 0) text('HANG', mx + mw + 26, my - 1, Art.PAL.e);
+    if (p.charging && pct >= 1 && this.frame % 10 < 6) text('MAX!', mx + mw + 4, my - 1, Art.PAL.o);
+    else if (p.charging) text('HOLD', mx + mw + 4, my - 1, Art.PAL.e);
+    else if (p.hang > 0) text('HANG', mx + mw + 4, my - 1, Art.PAL.e);
+    else text('PWR', mx + mw + 4, my - 1, Art.PAL.m);
 
-    // tier indicator
-    const tierName = ['SMALL', 'ARMORED', p.module ? p.module.toUpperCase() : 'MODULE'][p.tier];
-    text(tierName, 220, 15, p.tier === 0 ? Art.PAL.m : Art.PAL.g);
+    this._drawInventory();
+  },
+
+  // Owned abilities: colored key-tiles, dimmed when on cooldown / out of ammo.
+  _drawInventory() {
+    const p = this.player;
+    let x = 150;
+    for (const name of Powerups.POWER_ORDER) {
+      const st = p.inv[name]; if (!st) continue;
+      const m = Powerups.POWERUPS[name], c = m.color;
+      let ready = true, badge = '';
+      if ('ammo' in st) { ready = st.ammo > 0; badge = '' + st.ammo; }
+      else if ('cd' in st) { ready = st.cd <= 0; }
+      if (name === 'heli') ready = p.heliFuel > 5;
+      if (name === 'pig' && p.riding) badge = '*';
+      ctx.globalAlpha = ready ? 1 : 0.3;
+      ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      ctx.fillRect(x, 18, 9, 9);
+      ctx.globalAlpha = 1;
+      text(m.key, x + 3, 20, [16, 18, 28]);
+      if (badge) text(badge, x + 10, 21, c);
+      x += badge ? 16 : 13;
+      if (x > VIEW_W - 12) break;
+    }
   },
 
   _drawTitle() {
@@ -364,11 +669,12 @@ const Game = {
     ctx.drawImage(Art.HERO.idle, VIEW_W / 2 - 24, 60, Art.HERO.idle.logicalW * 4, Art.HERO.idle.logicalH * 4);
     ctx.restore();
     textBig('BOLT', VIEW_W / 2 - 40, 20, Art.PAL.e);
-    text('A FACTORY RUN', VIEW_W / 2 - 39, 130, Art.PAL.w);
-    if (this.frame % 60 < 40) text('PRESS ENTER TO START', VIEW_W / 2 - 60, 160, Art.PAL.o);
-    text('ARROWS MOVE   Z JUMP   X RUN', VIEW_W / 2 - 84, 185, Art.PAL.m);
-    text('HOLD JUMP TO CHARGE POWER', VIEW_W / 2 - 75, 198, Art.PAL.m);
-    text('RELEASE FOR A HIGH JUMP WITH HANG TIME', VIEW_W / 2 - 114, 208, Art.PAL.e);
+    text('A FACTORY RUN   10 LEVELS', VIEW_W / 2 - 75, 128, Art.PAL.w);
+    if (this.frame % 60 < 40) text('PRESS ENTER TO START', VIEW_W / 2 - 60, 150, Art.PAL.o);
+    text('ARROWS MOVE   Z JUMP   X RUN', VIEW_W / 2 - 84, 172, Art.PAL.m);
+    text('HOLD JUMP TO CHARGE, RELEASE FOR A HIGH JUMP', VIEW_W / 2 - 132, 185, Art.PAL.m);
+    text('EACH LEVEL HIDES A SECRET POWER-UP', VIEW_W / 2 - 102, 200, Art.PAL.o);
+    text('FIRE IT WITH ITS KEY  F H K J L P B O N C', VIEW_W / 2 - 123, 210, Art.PAL.e);
   },
 
   _drawBanner(title, sub, color) {

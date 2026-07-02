@@ -14,10 +14,12 @@ const Input = (() => {
     ArrowRight: 'right', KeyD: 'right',
     ArrowUp: 'up', KeyW: 'up',
     ArrowDown: 'down', KeyS: 'down',
-    Space: 'jump', KeyK: 'jump', KeyZ: 'jump',
-    ShiftLeft: 'run', ShiftRight: 'run', KeyJ: 'run', KeyX: 'run',
-    KeyE: 'action', Enter: 'start', KeyP: 'pause',
-    KeyR: 'reset',
+    Space: 'jump', KeyZ: 'jump',
+    ShiftLeft: 'run', ShiftRight: 'run', KeyX: 'run',
+    Enter: 'start', KeyR: 'reset',
+    // power-up activation keys — one per secret ability
+    KeyF: 'laser', KeyH: 'heli', KeyK: 'bees', KeyJ: 'juke', KeyL: 'shield',
+    KeyP: 'pig', KeyB: 'dash', KeyO: 'moon', KeyN: 'nuke', KeyC: 'carpet',
   };
 
   window.addEventListener('keydown', (e) => {

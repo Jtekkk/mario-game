@@ -31,14 +31,17 @@
   <h1>BOLT · A FACTORY RUN</h1>
   <canvas id="game"></canvas>
   <div class="hint">
-    <b>←/→</b> move &nbsp; <b>Z/Space</b> jump &nbsp; <b>X/Shift</b> run &nbsp; <b>M</b> mute &nbsp; <b>R</b> restart<br>
-    <b>Hold jump</b> to charge <b>PWR</b> (it fills and stays full) — <b>release</b> for a high jump with hang time. The more you charge, the higher you leap. Grab modules for armor &amp; abilities.
+    <b>←/→</b> move &nbsp; <b>Z/Space</b> jump &nbsp; <b>X/Shift</b> run &nbsp; <b>R</b> restart level<br>
+    <b>Hold jump</b> to charge <b>PWR</b> (it fills and stays full) — <b>release</b> for a high jump with hang time.<br>
+    10 levels, each hides a <b>secret power-up</b> up high. Find it, then fire it with its key:
+    <b>F</b> laser · <b>H</b> heli · <b>K</b> bees · <b>J</b> juke · <b>L</b> shield · <b>P</b> pig · <b>B</b> dash · <b>O</b> moon · <b>N</b> nuke · <b>C</b> carpet
   </div>
 
   <!-- Loaded as classic scripts (no build step) so index.html runs from file:// too. Order matters. -->
   <script src="js/pixel.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/input.js"></script>
+  <script src="js/powerups.js"></script>
   <script src="js/level.js"></script>
   <script src="js/player.js"></script>
   <script src="js/enemies.js"></script>
