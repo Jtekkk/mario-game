@@ -2,8 +2,9 @@
 
 A small, original 2D platformer built in vanilla JavaScript + HTML5 Canvas.
 You play **Bolt**, a factory robot who sprints, stomps, and charges up big
-hang-time jumps across a **10-level campaign** — and every level hides a
-**secret power-up** on a high ledge, from laser eyes to a mini nuke.
+hang-time jumps across a **10-level campaign** — each level has its own theme,
+hides a **secret power-up** on a high ledge (from laser eyes to a mini nuke),
+and three of them end in a **boss**. You have **2 hits of health** per level.
 
 It was built as a learning exercise: we examined a real NES cartridge to
 understand how an 8-bit platformer was engineered, then rebuilt those
@@ -44,6 +45,17 @@ it in your inventory and use it any time:
 | **O** | Moon Destruct | Blow up the moon; debris wipes on-screen enemies |
 | **N** | Mini Nuke | Kill every enemy in the level |
 | **C** | Magic Carpet | Skip the next 2 levels |
+
+### Bosses
+Three levels end in a boss with an HP bar. Each is **weak to one power-up**
+(triple damage) but can be beaten by **any** offensive means — stomp it, laser
+it, dash through it, whatever you've got. The exit stays locked until it falls.
+
+| Level | Boss | Weak to |
+|---|---|---|
+| 4 · Sensor Maze | The Watcher (hovers & lunges) | **F** Laser |
+| 7 · Turbo Tunnel | Swarm Queen (bounces) | **K** Bees |
+| 10 · Sky Bazaar | The Juggernaut (charges) | **B** Dash |
 
 ## What's inside (and which lesson it applies)
 

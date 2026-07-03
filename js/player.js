@@ -62,6 +62,8 @@ class Player {
     this.dead = false;
     this.bolts = 0;
     this.spawnX = x; this.spawnY = y;
+    this.maxHp = 2;           // 2 hits of health (resets each level)
+    this.hp = 2;
     // ---- power-up state ----
     this.inv = {};            // collected abilities: name -> state
     this.heliOn = false;      // set by game each frame while H held + owned
@@ -79,17 +81,13 @@ class Player {
   // Rectangle in world space.
   get rect() { return { x: this.x, y: this.y, w: this.w, h: this.h }; }
 
-  hurt() {
+  hurt(dmg = 1) {
     if (this.invuln > 0) return false;
     if (this.shieldTimer > 0) { this.invuln = 24; return false; } // shield absorbs
+    this.hp -= dmg;
     this.invuln = 90;
-    if (this.tier > TIER.SMALL) {
-      this.tier -= 1;
-      if (this.tier < TIER.MODULE) this.module = null;
-      return false; // survived, dropped a tier
-    }
-    this.dead = true;
-    return true;
+    if (this.hp <= 0) { this.dead = true; return true; }
+    return false; // survived — down a hit
   }
 
   gainModule(kind) {

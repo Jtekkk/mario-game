@@ -238,4 +238,27 @@ function isSolid(level, tx, ty) {
 }
 function tileInfo(ch) { return TILES[ch] || TILES['.']; }
 
-const Level = { TILE, TILES, LEVELS, parseLevel, tileAt, isSolid, tileInfo };
+// Per-level visual theme (indexed by level). sky = [top, mid, bottom] gradient;
+// ground = [base, top-edge, shadow, rivet]; brick = [base, mortar, highlight].
+const THEMES = [
+  { name: 'steel',   sky: ['#0b1030', '#18234f', '#28407a'], ground: ['#3a4668', '#4c5a84', '#2a3350', '#6478a8'], brick: ['#7a5038', '#5a3826', '#96684a'], dot: 'rgba(120,200,255,0.25)' },
+  { name: 'vents',   sky: ['#04140f', '#0a2a24', '#12463a'], ground: ['#2f5048', '#3d6a5f', '#1c332e', '#4f867a'], brick: ['#3a5a4a', '#243a30', '#4e7a64'], dot: 'rgba(120,255,210,0.20)' },
+  { name: 'hive',    sky: ['#241608', '#4a2f12', '#7a531c'], ground: ['#6a4a20', '#8a6a2a', '#432e10', '#b7832f'], brick: ['#8a5a20', '#5a3a12', '#c79a4a'], dot: 'rgba(255,205,110,0.22)' },
+  { name: 'violet',  sky: ['#160a25', '#2c124a', '#45206e'], ground: ['#463862', '#63498c', '#2c2050', '#8a6ab0'], brick: ['#5a3a7a', '#3a2656', '#7e5aa0'], dot: 'rgba(200,150,255,0.24)' },
+  { name: 'reactor', sky: ['#250808', '#521414', '#8a2e14'], ground: ['#6a2e2e', '#8f4436', '#401818', '#c06046'], brick: ['#7a3a2a', '#4e2018', '#b56a4a'], dot: 'rgba(255,140,90,0.24)' },
+  { name: 'pasture', sky: ['#0e2418', '#1f4a2e', '#3a6e44'], ground: ['#5a6a3a', '#7a8f4a', '#3a4824', '#9ab060'], brick: ['#8a6a4a', '#5a4630', '#b08a5a'], dot: 'rgba(200,255,180,0.20)' },
+  { name: 'turbo',   sky: ['#04222a', '#0a4450', '#127a86'], ground: ['#2f6068', '#3d8290', '#1c383e', '#4fb0c0'], brick: ['#3a6a7a', '#244852', '#4e94a8'], dot: 'rgba(120,240,255,0.26)' },
+  { name: 'lunar',   sky: ['#05060f', '#0a0e22', '#14203f'], ground: ['#3a3f52', '#50566e', '#24283a', '#6a7290'], brick: ['#4a4e60', '#2e3140', '#666c84'], dot: 'rgba(200,210,255,0.30)', stars: true },
+  { name: 'warhead', sky: ['#1a0606', '#300a0a', '#4a1210'], ground: ['#4a2e2e', '#6a3e3a', '#2c1818', '#8a4a44'], brick: ['#5a2a24', '#381614', '#7a3e34'], dot: 'rgba(255,90,80,0.24)' },
+  { name: 'bazaar',  sky: ['#3a1030', '#6e1f4a', '#b04a3a'], ground: ['#6a3a5a', '#8f4a72', '#42243c', '#c07090'], brick: ['#9a5a3a', '#5a3624', '#c78a5a'], dot: 'rgba(255,200,140,0.24)', stars: true },
+];
+
+// Bosses guard three levels (0-indexed). Each is weak to one power-up (extra
+// damage) but can be beaten by any offensive means.
+const BOSSES = {
+  3: { name: 'THE WATCHER',   weakness: 'laser', color: [255, 77, 94],  pattern: 'hover' },
+  6: { name: 'SWARM QUEEN',   weakness: 'bees',  color: [255, 210, 63], pattern: 'bounce' },
+  9: { name: 'THE JUGGERNAUT',weakness: 'dash',  color: [120, 240, 255],pattern: 'charge' },
+};
+
+const Level = { TILE, TILES, LEVELS, THEMES, BOSSES, parseLevel, tileAt, isSolid, tileInfo };

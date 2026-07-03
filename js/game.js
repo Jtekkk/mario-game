@@ -43,6 +43,7 @@ const Game = {
   // Load the current level. Inventory + bolt total persist across levels.
   load() {
     this.level = Level.parseLevel(Level.LEVELS[this.levelIndex]);
+    this.theme = Level.THEMES[this.levelIndex] || Level.THEMES[0];
     const s = this.level.spawns;
     this.player = new PlayerNS.Player(s.player.x, s.player.y - 2);
     this.player.inv = this.inv;                 // share the persistent inventory
@@ -52,10 +53,28 @@ const Game = {
     this.secret = s.secret ? { x: s.secret.x, y: s.secret.y, powerup: s.secret.powerup, got: false, t: 0 } : null;
     this.beams = []; this.bees = []; this.debris = [];
     this.nukeFlash = 0; this.moonSeq = 0;
+    // boss?
+    const bcfg = Level.BOSSES[this.levelIndex];
+    if (bcfg) {
+      const gx = this._goalX();
+      const bx = (gx - 9) * Level.TILE;
+      const floorY = 12 * Level.TILE;   // arena floor top (levels share this)
+      const by = bcfg.pattern === 'bounce' ? floorY - 26 : floorY - 74;
+      this.boss = new Enemies.Boss(bx, by, bcfg);
+    } else this.boss = null;
+    this.bossDefeated = false;
     this.particles = [];
     this.cam = { x: 0, y: 0 };
     this.time = 300 * 60; // frames
     this.frame = 0;
+  },
+
+  _goalX() {
+    const L = this.level;
+    for (let x = L.w - 1; x >= 0; x--)
+      for (let y = 0; y < L.h; y++)
+        if (L.grid[y][x] === 'G') return x;
+    return L.w - 4;
   },
 
   // Start a fresh campaign.
@@ -144,6 +163,8 @@ const Game = {
       }
     }
 
+    this._updateBoss();
+
     // bolts
     for (const b of this.bolts) {
       if (b.got) continue;
@@ -168,11 +189,15 @@ const Game = {
       }
     }
 
-    // reached the goal pillar?
+    // reached the goal pillar? (on boss levels it's locked until the boss falls)
     const ptx0 = Math.floor(p.x / Level.TILE), ptx1 = Math.floor((p.x + p.w) / Level.TILE);
     for (let tx = ptx0; tx <= ptx1; tx++) {
       const ty = Math.floor((p.y + p.h / 2) / Level.TILE);
-      if (Level.tileAt(this.level, tx, ty) === 'G') { this._clearLevel(); }
+      if (Level.tileAt(this.level, tx, ty) === 'G') {
+        if (this.boss && !this.boss.dead) {
+          if (this.frame % 40 < 2) this._flashBanner('DEFEAT THE BOSS FIRST', [255, 120, 80], 60);
+        } else { this._clearLevel(); }
+      }
     }
 
     if (p.dead && this.state === State.PLAY) this._die();
@@ -200,6 +225,46 @@ const Game = {
   },
 
   _flashBanner(text, color, frames) { this.banner = { text, color }; this.bannerT = frames; },
+
+  _updateBoss() {
+    const b = this.boss, p = this.player;
+    if (!b) return;
+    b.update(p);
+
+    if (b.dead) {
+      if (!this.bossDefeated) { this.bossDefeated = true; this._flashBanner(b.name + ' DEFEATED  REACH THE EXIT', b.color, 150); }
+      if (b.deadTimer > 0 && this.frame % 3 === 0) this.addBurst(b.x + b.w / 2 + (b.t % 20 - 10), b.y + b.h / 2, b.color, 5);
+      return;
+    }
+
+    // contact: stomp/plow damages the boss; a side hit hurts the player
+    if (rectsOverlap(p.rect, b.rect)) {
+      const fallingOn = p.vy > 0 && (p.y + p.h) - b.y < b.h * 0.6;
+      if (p.dashing > 0 || p.riding) {
+        if (b.hit(1, p.dashing > 0 ? 'dash' : 'pig')) { this.addBurst(b.x + b.w / 2, b.y, b.color, 5); Sfx.stomp(); }
+      } else if (fallingOn) {
+        if (b.hit(1, 'stomp')) { this.addBurst(b.x + b.w / 2, b.y, b.color, 5); Sfx.stomp(); }
+        p.vy = -5.6;
+      } else {
+        const died = p.hurt();
+        if (p.invuln === 90) { Sfx.hurt(); this.addBurst(p.x + p.w / 2, p.y + p.h / 2, Art.PAL.e, 8); }
+        if (died) this._die();
+      }
+    }
+    // laser beams
+    for (const beam of this.beams) {
+      if (beam.y > b.y && beam.y < b.y + b.h &&
+          Math.min(beam.x, beam.x2) < b.x + b.w && Math.max(beam.x, beam.x2) > b.x) {
+        if (b.hit(1, 'laser')) this.addBurst(b.x + b.w / 2, beam.y, b.color, 5);
+      }
+    }
+    // bees
+    for (const bee of this.bees) {
+      if (rectsOverlap({ x: bee.x - 3, y: bee.y - 3, w: 6, h: 6 }, b.rect)) {
+        if (b.hit(1, 'bees')) { bee.life = 0; this.addBurst(bee.x, bee.y, b.color, 4); }
+      }
+    }
+  },
 
   // ---------- power-up activation ----------
   _powers() {
@@ -284,6 +349,7 @@ const Game = {
         st.ammo--;
         this.nukeFlash = 22;
         for (const e of this.enemies) { if (!e.dead) { e.dead = true; e.squash = 12; } }
+        if (this.boss && !this.boss.dead) this.boss.hit(4, 'nuke');
         Sfx.die();
         break;
       }
@@ -338,6 +404,8 @@ const Game = {
           if (e.dead) continue;
           if (e.x > this.cam.x - 8 && e.x < this.cam.x + VIEW_W + 8) { e.dead = true; e.squash = 12; }
         }
+        if (this.boss && !this.boss.dead && this.boss.x > this.cam.x - 8 && this.boss.x < this.cam.x + VIEW_W + 8)
+          this.boss.hit(3, 'moon');
         this.nukeFlash = 14;
       }
     }
@@ -379,6 +447,7 @@ const Game = {
     this._drawBolts();
     this._drawSecret();
     this._drawEnemies();
+    this._drawBoss();
     this._drawBees();
     this._drawDebris();
     this._drawPlayer();
@@ -395,6 +464,7 @@ const Game = {
 
     // HUD in screen space (the non-scrolling panel — the scanline-IRQ lesson).
     this._drawHUD();
+    if (this.boss && !this.boss.dead) this._drawBossHUD();
 
     if (this.state === State.CLEAR) this._drawBanner('SECTOR CLEARED', 'GET READY...', Art.PAL.g);
     if (this.state === State.DEAD) this._drawBanner('SYSTEM DOWN', 'PRESS ENTER TO RETRY', Art.PAL.j);
@@ -475,18 +545,31 @@ const Game = {
     text(bnr.text, VIEW_W / 2 - bnr.text.length * 3, 34, c);
   },
 
+  _drawBossHUD() {
+    const b = this.boss, meta = Powerups.POWERUPS[b.weakness];
+    const w = 168, x = VIEW_W / 2 - w / 2, y = 36;
+    ctx.fillStyle = 'rgba(6,10,26,0.8)';
+    ctx.fillRect(x - 3, y - 3, w + 6, 17);
+    text(b.name, x, y, b.color);
+    text('WEAK ' + meta.key, x + w - 24, y, meta.color);
+    ctx.fillStyle = '#101830'; ctx.fillRect(x, y + 8, w, 4);
+    ctx.fillStyle = `rgb(${b.color[0]},${b.color[1]},${b.color[2]})`;
+    ctx.fillRect(x, y + 8, Math.round(w * b.hp / b.maxHp), 4);
+  },
+
   _drawSky() {
+    const th = this.theme || Level.THEMES[0];
     const g = ctx.createLinearGradient(0, 0, 0, VIEW_H);
-    g.addColorStop(0, '#0b1030');
-    g.addColorStop(0.6, '#18234f');
-    g.addColorStop(1, '#28407a');
+    g.addColorStop(0, th.sky[0]); g.addColorStop(0.6, th.sky[1]); g.addColorStop(1, th.sky[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    // parallax "circuit" dots
-    ctx.fillStyle = 'rgba(120,200,255,0.25)';
-    for (let i = 0; i < 40; i++) {
-      const x = ((i * 71 - this.cam.x * 0.3) % (VIEW_W + 20) + VIEW_W + 20) % (VIEW_W + 20) - 10;
+    // parallax dots (twinkling stars on space themes)
+    ctx.fillStyle = th.dot;
+    for (let i = 0; i < 42; i++) {
+      const par = th.stars ? 0.12 : 0.3;
+      const x = ((i * 71 - this.cam.x * par) % (VIEW_W + 20) + VIEW_W + 20) % (VIEW_W + 20) - 10;
       const y = (i * 47) % VIEW_H;
+      if (th.stars && i % 5 === 0 && this.frame % 40 < 20) continue; // twinkle
       ctx.fillRect(x, y, 2, 2);
     }
   },
@@ -513,6 +596,35 @@ const Game = {
       const spr = Art.BOLT.a;
       ctx.drawImage(spr, Math.round(b.x - 4), Math.round(b.y - 4 + bob));
     }
+  },
+
+  _drawBoss() {
+    const b = this.boss;
+    if (!b || (b.dead && b.deadTimer <= 0)) return;
+    const c = b.color;
+    const flash = b.flash > 0 && this.frame % 2 === 0;
+    ctx.save();
+    if (b.dead) ctx.globalAlpha = Math.max(0, b.deadTimer / 55);
+    // blocky armored body
+    ctx.fillStyle = flash ? '#ffffff' : `rgb(${c[0]},${c[1]},${c[2]})`;
+    ctx.fillRect(b.x, b.y + 3, b.w, b.h - 6);
+    ctx.fillRect(b.x + 3, b.y, b.w - 6, b.h);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(b.x + 4, b.y + b.h - 6, b.w - 8, 3);       // under-plating
+    ctx.fillRect(b.x + 4, b.y + 3, b.w - 8, 2);
+    ctx.strokeStyle = '#10121c'; ctx.lineWidth = 1;
+    ctx.strokeRect(b.x + 3, b.y, b.w - 6, b.h);
+    // single eye that looks toward the player
+    const ex = b.x + b.w / 2, ey = b.y + b.h / 2 - 1;
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = flash ? '#000' : `rgb(${Math.max(0, c[0] - 70)},${Math.max(0, c[1] - 70)},${Math.max(0, c[2] - 70)})`;
+    ctx.beginPath(); ctx.arc(ex + (this.player.x > b.x ? 2 : -2), ey, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    if (b.dead) return;
+    // floating HP bar
+    ctx.fillStyle = '#101830'; ctx.fillRect(b.x, b.y - 7, b.w, 3);
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+    ctx.fillRect(b.x, b.y - 7, Math.round(b.w * b.hp / b.maxHp), 3);
   },
 
   _drawEnemies() {
@@ -619,7 +731,13 @@ const Game = {
     const meta = Level.LEVELS[this.levelIndex];
     text('L' + (this.levelIndex + 1) + '/' + Level.LEVELS.length + ' ' + meta.name, 6, 4, Art.PAL.e);
     text('BOLTS ' + String(p.bolts).padStart(2, '0'), 6, 13, Art.PAL.o);
-    text('TIME ' + String(Math.ceil(this.time / 60)).padStart(3, '0'), 92, 13, Art.PAL.w);
+    text('TIME ' + String(Math.ceil(this.time / 60)).padStart(3, '0'), 84, 13, Art.PAL.w);
+    // health pips
+    text('HP', 140, 13, Art.PAL.m);
+    for (let i = 0; i < p.maxHp; i++) {
+      ctx.fillStyle = i < p.hp ? (p.invuln > 0 && this.frame % 6 < 3 ? '#ffd0d0' : '#ff5a6e') : '#3a2431';
+      ctx.fillRect(153 + i * 8, 11, 6, 6);
+    }
 
     // jump-charge meter
     const mx = 6, my = 22, mw = 72, mh = 4;
@@ -695,17 +813,21 @@ function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 function drawTile(ch, x, y, frame) {
   const T = Level.TILE;
   switch (ch) {
-    case '#': // ground: metal plate with rivets
-      ctx.fillStyle = '#3a4668'; ctx.fillRect(x, y, T, T);
-      ctx.fillStyle = '#4c5a84'; ctx.fillRect(x, y, T, 3);
-      ctx.fillStyle = '#2a3350'; ctx.fillRect(x, y + T - 2, T, 2);
-      ctx.fillStyle = '#6478a8'; ctx.fillRect(x + 2, y + 5, 2, 2); ctx.fillRect(x + T - 4, y + 5, 2, 2);
+    case '#': { // ground plate with rivets — tinted by the level theme
+      const g = (Game.theme || Level.THEMES[0]).ground;
+      ctx.fillStyle = g[0]; ctx.fillRect(x, y, T, T);
+      ctx.fillStyle = g[1]; ctx.fillRect(x, y, T, 3);
+      ctx.fillStyle = g[2]; ctx.fillRect(x, y + T - 2, T, 2);
+      ctx.fillStyle = g[3]; ctx.fillRect(x + 2, y + 5, 2, 2); ctx.fillRect(x + T - 4, y + 5, 2, 2);
       break;
-    case 'B': // brick
-      ctx.fillStyle = '#7a5038'; ctx.fillRect(x, y, T, T);
-      ctx.fillStyle = '#5a3826'; ctx.fillRect(x, y + 7, T, 1); ctx.fillRect(x + 7, y, 1, 7); ctx.fillRect(x + 3, y + 8, 1, 8);
-      ctx.fillStyle = '#96684a'; ctx.fillRect(x + 1, y + 1, T - 2, 2);
+    }
+    case 'B': { // brick — themed
+      const bk = (Game.theme || Level.THEMES[0]).brick;
+      ctx.fillStyle = bk[0]; ctx.fillRect(x, y, T, T);
+      ctx.fillStyle = bk[1]; ctx.fillRect(x, y + 7, T, 1); ctx.fillRect(x + 7, y, 1, 7); ctx.fillRect(x + 3, y + 8, 1, 8);
+      ctx.fillStyle = bk[2]; ctx.fillRect(x + 1, y + 1, T - 2, 2);
       break;
+    }
     case 'Q': // crate
       ctx.fillStyle = '#b7832f'; ctx.fillRect(x, y, T, T);
       ctx.fillStyle = '#8a6220'; ctx.fillRect(x + 1, y + 1, T - 2, T - 2);
