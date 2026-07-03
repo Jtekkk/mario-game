@@ -58,9 +58,15 @@ const Game = {
     const bcfg = Level.BOSSES[this.levelIndex];
     if (bcfg) {
       const gx = this._goalX();
+      // carve a flat, pit-free arena floor before the goal so the fight is fair
+      for (let x = Math.max(0, gx - 18); x <= gx - 1; x++)
+        for (let y = 12; y < this.level.h; y++) this.level.grid[y][x] = '#';
+      this.enemies = this.enemies.filter(e => e.x < (gx - 18) * Level.TILE);
       const bx = (gx - 9) * Level.TILE;
-      const floorY = 12 * Level.TILE;   // arena floor top (levels share this)
-      const by = bcfg.pattern === 'bounce' ? floorY - 26 : floorY - 74;
+      const floorY = 12 * Level.TILE;
+      // bounce/charge fight at ground level (so stomp/dash connect); only the
+      // hover boss floats (and it's weak to the angled laser).
+      const by = bcfg.pattern === 'hover' ? floorY - 44 : floorY - 26;
       this.boss = new Enemies.Boss(bx, by, bcfg);
     } else this.boss = null;
     this.bossDefeated = false;
@@ -267,8 +273,8 @@ const Game = {
     if (b.fireCd <= 0) {
       const sx = b.x + b.w / 2, sy = b.y + b.h / 2;
       const dx = (p.x + p.w / 2) - sx, dy = (p.y + p.h / 2) - sy, m = Math.hypot(dx, dy) || 1;
-      this.bossShots.push({ x: sx, y: sy, vx: dx / m * 2.3, vy: dy / m * 2.3, life: 150, color: b.color });
-      b.fireCd = 92;
+      this.bossShots.push({ x: sx, y: sy, vx: dx / m * 2.0, vy: dy / m * 2.0, life: 170, color: b.color });
+      b.fireCd = 110;
       Sfx.boost();
     }
 
@@ -326,8 +332,17 @@ const Game = {
           if (Math.abs((e.y + e.h / 2) - y) > 22) continue;
           if (Math.abs(dx) < bestd) { bestd = Math.abs(dx); best = e; }
         }
-        const endX = best ? best.x + best.w / 2 : p.x + p.face * Powerups.PWR.laserRange;
-        this.beams.push({ x: p.x + p.w / 2, y, x2: endX, life: 8 });
+        let endX = best ? best.x + best.w / 2 : p.x + p.face * Powerups.PWR.laserRange;
+        let endY = y;
+        // the boss: hit it if it's in front within range, at ANY height (angled beam)
+        if (this.boss && !this.boss.dead) {
+          const bdx = (this.boss.x + this.boss.w / 2) - (p.x + p.w / 2);
+          if (Math.sign(bdx) === p.face && Math.abs(bdx) < Powerups.PWR.laserRange) {
+            this.boss.hit(1, 'laser');
+            endX = this.boss.x + this.boss.w / 2; endY = this.boss.y + this.boss.h / 2;
+          }
+        }
+        this.beams.push({ x: p.x + p.w / 2, y, x2: endX, y2: endY, life: 8 });
         if (best) { best.dead = true; best.squash = 12; this.addBurst(best.x + best.w / 2, best.y, Art.PAL2.e || [90,220,255], 8); }
         Sfx.stomp();
         break;
@@ -407,7 +422,7 @@ const Game = {
     // laser beams
     for (const b of this.beams) b.life--;
     this.beams = this.beams.filter(b => b.life > 0);
-    // bees: home to nearest enemy, kill on contact
+    // bees: home to the nearest target (enemy OR boss), kill enemies on contact
     for (const bee of this.bees) {
       let tgt = null, td = 1e9;
       for (const e of this.enemies) {
@@ -415,13 +430,18 @@ const Game = {
         const d = (e.x - bee.x) ** 2 + (e.y - bee.y) ** 2;
         if (d < td) { td = d; tgt = e; }
       }
+      if (this.boss && !this.boss.dead) {
+        const d = (this.boss.x + this.boss.w / 2 - bee.x) ** 2 + (this.boss.y + this.boss.h / 2 - bee.y) ** 2;
+        if (d < td) { td = d; tgt = this.boss; }
+      }
       if (tgt) {
         const dx = (tgt.x + tgt.w / 2) - bee.x, dy = (tgt.y + tgt.h / 2) - bee.y;
         const m = Math.hypot(dx, dy) || 1;
         bee.vx += (dx / m) * 0.5; bee.vy += (dy / m) * 0.5;
         const s = Math.hypot(bee.vx, bee.vy), mx = Powerups.PWR.beesSpeed;
         if (s > mx) { bee.vx = bee.vx / s * mx; bee.vy = bee.vy / s * mx; }
-        if (td < 64) { tgt.dead = true; tgt.squash = 12; bee.life = 0; this.addBurst(tgt.x + tgt.w / 2, tgt.y, Powerups.POWERUPS.bees.color, 5); }
+        // enemy contact kills; boss damage is applied in _updateBoss
+        if (td < 64 && tgt !== this.boss) { tgt.dead = true; tgt.squash = 12; bee.life = 0; this.addBurst(tgt.x + tgt.w / 2, tgt.y, Powerups.POWERUPS.bees.color, 5); }
       }
       bee.x += bee.vx; bee.y += bee.vy; bee.life--;
     }
@@ -527,12 +547,13 @@ const Game = {
 
   _drawBeams() {
     for (const b of this.beams) {
+      const y2 = b.y2 != null ? b.y2 : b.y;
       ctx.save();
       ctx.globalAlpha = b.life / 8;
       ctx.strokeStyle = '#ff4d5e'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x2, b.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x2, y2); ctx.stroke();
       ctx.strokeStyle = '#ffd0d0'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x2, b.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x2, y2); ctx.stroke();
       ctx.restore();
     }
   },

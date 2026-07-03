@@ -92,7 +92,7 @@ class Boss {
     this.hitCd = 0; this.flash = 0;
     this.dead = false; this.deadTimer = 0;
     this.t = 0; this.state = 'idle'; this.actionCd = 90; this.dir = -1;
-    this.fireCd = 130;   // frames until the next telegraphed shot
+    this.fireCd = 160;   // frames until the next telegraphed shot (grace at start)
   }
   get rect() { return { x: this.x, y: this.y, w: this.w, h: this.h }; }
 
