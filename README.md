@@ -28,6 +28,10 @@ No build step, no dependencies. Either:
 | Run | X / Shift |
 | Restart level | R |
 | Start / advance | Enter |
+| Mute | M |
+
+Progress is saved automatically. On the title screen, **Enter continues** from
+your highest level (with the power-ups you'd have earned) and **R starts over**.
 
 ### Secret power-ups (one per level, fired by its own key)
 Each level hides a `*` capsule up high — reach it with a charged jump, then keep
@@ -47,9 +51,11 @@ it in your inventory and use it any time:
 | **C** | Magic Carpet | Skip the next 2 levels |
 
 ### Bosses
-Three levels end in a boss with an HP bar. Each is **weak to one power-up**
-(triple damage) but can be beaten by **any** offensive means — stomp it, laser
-it, dash through it, whatever you've got. The exit stays locked until it falls.
+Three levels end in a boss with an HP bar that **fires telegraphed, dodgeable
+shots** at you (watch the eye charge up) on top of contact damage. Each is
+**weak to one power-up** (triple damage) but can be beaten by **any** offensive
+means — stomp it, laser it, dash through it, whatever you've got. The exit stays
+locked until it falls.
 
 | Level | Boss | Weak to |
 |---|---|---|

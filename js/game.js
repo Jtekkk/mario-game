@@ -39,6 +39,7 @@ const Game = {
   frame: 0,
   transition: 0,
   best: Number(localStorage.getItem('bolt_best') || 0),
+  progress: Number(localStorage.getItem('bolt_progress') || 0),  // highest level unlocked
 
   // Load the current level. Inventory + bolt total persist across levels.
   load() {
@@ -51,7 +52,7 @@ const Game = {
     this.enemies = s.enemies.map(e => new Enemies.Enemy(e.x, e.y, e.kind));
     this.bolts = s.bolts.map(b => ({ x: b.x + 4, y: b.y + 4, got: false, t: 0 }));
     this.secret = s.secret ? { x: s.secret.x, y: s.secret.y, powerup: s.secret.powerup, got: false, t: 0 } : null;
-    this.beams = []; this.bees = []; this.debris = [];
+    this.beams = []; this.bees = []; this.debris = []; this.bossShots = [];
     this.nukeFlash = 0; this.moonSeq = 0;
     // boss?
     const bcfg = Level.BOSSES[this.levelIndex];
@@ -77,10 +78,15 @@ const Game = {
     return L.w - 4;
   },
 
-  // Start a fresh campaign.
-  start() {
-    this.levelIndex = 0;
+  // Start the campaign at a given level (0 = new game). When resuming, grant
+  // the secrets you'd already have collected from earlier levels.
+  start(fromLevel = 0) {
+    this.levelIndex = fromLevel;
     this.inv = {};
+    for (let i = 0; i < fromLevel; i++) {
+      const pu = Level.LEVELS[i].powerup;
+      this.inv[pu] = Powerups.freshPower(pu);
+    }
     this._totalBolts = 0;
     this.load();
     this.state = State.PLAY;
@@ -90,6 +96,10 @@ const Game = {
   // Advance to a given level index (used by goal + magic carpet).
   gotoLevel(idx) {
     this._totalBolts = this.player.bolts;
+    if (idx > this.progress && idx <= Level.LEVELS.length) {
+      this.progress = Math.min(idx, Level.LEVELS.length);
+      try { localStorage.setItem('bolt_progress', this.progress); } catch (e) {}
+    }
     if (idx >= Level.LEVELS.length) { this.state = State.COMPLETE; Sfx.win(); return; }
     this.levelIndex = idx;
     this.load();
@@ -109,7 +119,9 @@ const Game = {
     if (this.bannerT > 0) this.bannerT--;
 
     if (this.state === State.TITLE) {
-      if (Input.justPressed('start') || Input.justPressed('jump')) this.start();
+      const canContinue = this.progress > 0 && this.progress < Level.LEVELS.length;
+      if (Input.justPressed('start') || Input.justPressed('jump')) this.start(canContinue ? this.progress : 0);
+      else if (Input.justPressed('reset')) this.start(0);   // R = new game
       Input.endFrame(); return;
     }
     if (this.state === State.CLEAR) {
@@ -227,7 +239,20 @@ const Game = {
   _flashBanner(text, color, frames) { this.banner = { text, color }; this.bannerT = frames; },
 
   _updateBoss() {
-    const b = this.boss, p = this.player;
+    const p = this.player;
+    // boss shots keep flying (and hurting) even if the boss just fell
+    for (const sh of this.bossShots) {
+      sh.x += sh.vx; sh.y += sh.vy; sh.life--;
+      if (rectsOverlap({ x: sh.x - 3, y: sh.y - 3, w: 6, h: 6 }, p.rect)) {
+        sh.life = 0;
+        const died = p.hurt();
+        if (p.invuln === 90) { Sfx.hurt(); this.addBurst(p.x + p.w / 2, p.y + p.h / 2, Art.PAL.e, 8); }
+        if (died) this._die();
+      }
+    }
+    this.bossShots = this.bossShots.filter(s => s.life > 0);
+
+    const b = this.boss;
     if (!b) return;
     b.update(p);
 
@@ -235,6 +260,16 @@ const Game = {
       if (!this.bossDefeated) { this.bossDefeated = true; this._flashBanner(b.name + ' DEFEATED  REACH THE EXIT', b.color, 150); }
       if (b.deadTimer > 0 && this.frame % 3 === 0) this.addBurst(b.x + b.w / 2 + (b.t % 20 - 10), b.y + b.h / 2, b.color, 5);
       return;
+    }
+
+    // fire a telegraphed, dodgeable shot aimed at the player
+    b.fireCd--;
+    if (b.fireCd <= 0) {
+      const sx = b.x + b.w / 2, sy = b.y + b.h / 2;
+      const dx = (p.x + p.w / 2) - sx, dy = (p.y + p.h / 2) - sy, m = Math.hypot(dx, dy) || 1;
+      this.bossShots.push({ x: sx, y: sy, vx: dx / m * 2.3, vy: dy / m * 2.3, life: 150, color: b.color });
+      b.fireCd = 92;
+      Sfx.boost();
     }
 
     // contact: stomp/plow damages the boss; a side hit hurts the player
@@ -448,6 +483,7 @@ const Game = {
     this._drawSecret();
     this._drawEnemies();
     this._drawBoss();
+    this._drawBossShots();
     this._drawBees();
     this._drawDebris();
     this._drawPlayer();
@@ -621,10 +657,33 @@ const Game = {
     ctx.beginPath(); ctx.arc(ex + (this.player.x > b.x ? 2 : -2), ey, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     if (b.dead) return;
+    // telegraph: the eye charges up just before it fires
+    if (b.fireCd < 20) {
+      ctx.save();
+      ctx.globalAlpha = (20 - b.fireCd) / 20 * (this.frame % 4 < 2 ? 0.8 : 0.4);
+      ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      ctx.beginPath(); ctx.arc(ex, ey, 3 + (20 - b.fireCd) * 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
     // floating HP bar
     ctx.fillStyle = '#101830'; ctx.fillRect(b.x, b.y - 7, b.w, 3);
     ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
     ctx.fillRect(b.x, b.y - 7, Math.round(b.w * b.hp / b.maxHp), 3);
+  },
+
+  _drawBossShots() {
+    for (const sh of this.bossShots) {
+      const c = sh.color;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, sh.life / 20);
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},0.4)`;
+      ctx.beginPath(); ctx.arc(sh.x, sh.y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      ctx.fillRect(Math.round(sh.x - 2), Math.round(sh.y - 2), 4, 4);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(Math.round(sh.x - 1), Math.round(sh.y - 1), 2, 2);
+      ctx.restore();
+    }
   },
 
   _drawEnemies() {
@@ -787,12 +846,17 @@ const Game = {
     ctx.drawImage(Art.HERO.idle, VIEW_W / 2 - 24, 60, Art.HERO.idle.logicalW * 4, Art.HERO.idle.logicalH * 4);
     ctx.restore();
     textBig('BOLT', VIEW_W / 2 - 40, 20, Art.PAL.e);
-    text('A FACTORY RUN   10 LEVELS', VIEW_W / 2 - 75, 128, Art.PAL.w);
-    if (this.frame % 60 < 40) text('PRESS ENTER TO START', VIEW_W / 2 - 60, 150, Art.PAL.o);
-    text('ARROWS MOVE   Z JUMP   X RUN', VIEW_W / 2 - 84, 172, Art.PAL.m);
-    text('HOLD JUMP TO CHARGE, RELEASE FOR A HIGH JUMP', VIEW_W / 2 - 132, 185, Art.PAL.m);
-    text('EACH LEVEL HIDES A SECRET POWER-UP', VIEW_W / 2 - 102, 200, Art.PAL.o);
-    text('FIRE IT WITH ITS KEY  F H K J L P B O N C', VIEW_W / 2 - 123, 210, Art.PAL.e);
+    text('A FACTORY RUN   10 LEVELS', VIEW_W / 2 - 75, 122, Art.PAL.w);
+    const canContinue = this.progress > 0 && this.progress < Level.LEVELS.length;
+    if (this.frame % 60 < 40) {
+      if (canContinue) text('ENTER: CONTINUE L' + (this.progress + 1) + '     R: NEW GAME', VIEW_W / 2 - 111, 144, Art.PAL.o);
+      else if (this.progress >= Level.LEVELS.length) text('CAMPAIGN COMPLETE   ENTER: PLAY AGAIN', VIEW_W / 2 - 111, 144, Art.PAL.g);
+      else text('PRESS ENTER TO START', VIEW_W / 2 - 60, 144, Art.PAL.o);
+    }
+    text('ARROWS MOVE   Z JUMP   X RUN', VIEW_W / 2 - 84, 168, Art.PAL.m);
+    text('HOLD JUMP TO CHARGE, RELEASE FOR A HIGH JUMP', VIEW_W / 2 - 132, 181, Art.PAL.m);
+    text('EACH LEVEL HIDES A SECRET POWER-UP', VIEW_W / 2 - 102, 196, Art.PAL.o);
+    text('FIRE IT WITH ITS KEY  F H K J L P B O N C', VIEW_W / 2 - 123, 206, Art.PAL.e);
   },
 
   _drawBanner(title, sub, color) {
