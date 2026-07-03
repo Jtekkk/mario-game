@@ -51,10 +51,18 @@ const Input = (() => {
     set('start', gp.buttons[9]?.pressed);
   }
 
+  // Feed an action from a source other than the keyboard (touch buttons),
+  // producing the same held / just-pressed / just-released edges.
+  function setAction(a, isDown) {
+    if (isDown) { if (!held[a]) pressed[a] = true; held[a] = true; }
+    else { if (held[a]) released[a] = true; held[a] = false; }
+  }
+
   return {
     down: (a) => !!held[a],
     justPressed: (a) => !!pressed[a],
     justReleased: (a) => !!released[a],
+    setAction,
     // Called once at the very end of each frame.
     endFrame() {
       for (const k in pressed) pressed[k] = false;

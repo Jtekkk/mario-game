@@ -25,6 +25,29 @@
   .hint { font-size: 11px; margin: 10px 0 16px; opacity: 0.7; text-align: center; line-height: 1.6; }
   .hint b { color: #ffb040; }
   a { color: #5adcff; }
+
+  /* ---- touch controls (shown only on touch devices) ---- */
+  #touch { display: none; }
+  body.touch #touch {
+    display: flex; position: fixed; inset: auto 0 0 0; z-index: 10;
+    justify-content: space-between; align-items: flex-end;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    pointer-events: none; user-select: none; -webkit-user-select: none;
+    touch-action: none;
+  }
+  body.touch #game { max-height: 62vh; }
+  body.touch .hint { display: none; }
+  #touch .cluster { display: flex; gap: 12px; align-items: flex-end; pointer-events: none; }
+  #touch button {
+    pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent;
+    font-family: inherit; font-weight: 700; color: #dbe6ff;
+    background: rgba(20,28,54,0.72); border: 2px solid #3a4c86; border-radius: 12px;
+    width: 60px; height: 60px; font-size: 20px;
+  }
+  #touch button:active { background: rgba(60,90,170,0.85); transform: scale(0.94); }
+  #touch .jump { width: 78px; height: 78px; border-color: #5adcff; color: #bff2ff; }
+  #touch .powers { display: flex; flex-wrap: wrap-reverse; gap: 6px; max-width: 40vw; justify-content: center; pointer-events: none; }
+  #touch .powers button { width: 40px; height: 40px; font-size: 14px; border-radius: 9px; }
 </style>
 </head>
 <body>
@@ -37,6 +60,19 @@
     <b>F</b> laser · <b>H</b> heli · <b>K</b> bees · <b>J</b> juke · <b>L</b> shield · <b>P</b> pig · <b>B</b> dash · <b>O</b> moon · <b>N</b> nuke · <b>C</b> carpet
   </div>
 
+  <!-- on-screen controls for phones/tablets (hidden on desktop) -->
+  <div id="touch">
+    <div class="cluster">
+      <button data-act="left" aria-label="left">◀</button>
+      <button data-act="right" aria-label="right">▶</button>
+    </div>
+    <div class="powers" id="touchPowers"></div>
+    <div class="cluster">
+      <button data-act="run">RUN</button>
+      <button data-act="jump" class="jump">JUMP</button>
+    </div>
+  </div>
+
   <!-- Loaded as classic scripts (no build step) so index.html runs from file:// too. Order matters. -->
   <script src="js/pixel.js"></script>
   <script src="js/sound.js"></script>
@@ -46,5 +82,6 @@
   <script src="js/player.js"></script>
   <script src="js/enemies.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/touch.js"></script>
 </body>
 </html>

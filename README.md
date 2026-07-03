@@ -33,6 +33,9 @@ No build step, no dependencies. Either:
 Progress is saved automatically. On the title screen, **Enter continues** from
 your highest level (with the power-ups you'd have earned) and **R starts over**.
 
+On phones/tablets an **on-screen control pad** appears automatically (move,
+run, jump, plus a button per power-up you own) — no keyboard needed.
+
 ### Secret power-ups (one per level, fired by its own key)
 Each level hides a `*` capsule up high — reach it with a charged jump, then keep
 it in your inventory and use it any time:
