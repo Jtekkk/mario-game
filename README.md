@@ -28,7 +28,7 @@ No build step, no dependencies. Either:
 | Run | X / Shift |
 | Restart level | R |
 | Start / advance | Enter |
-| Mute | M |
+| Audio | M cycles: music + SFX → music off → all sound off |
 
 Progress is saved automatically. On the title screen, **Enter continues** from
 your highest level (with the power-ups you'd have earned) and **R starts over**.
@@ -52,6 +52,26 @@ it in your inventory and use it any time:
 | **O** | Moon Destruct | Blow up the moon; debris wipes on-screen enemies |
 | **N** | Mini Nuke | Kill every enemy in the level |
 | **C** | Magic Carpet | Skip the next 2 levels |
+
+### Music
+Every level has its own looping track (in `assets/music/`, one per level in
+campaign order). The song title flashes in the HUD when a level starts, music
+keeps playing seamlessly through quick retries, and it follows you when the
+magic carpet skips levels. Browsers block audio until your first key press or
+tap — starting the game counts, so it just works.
+
+| Level | Track |
+|---|---|
+| 1 | The Last of the Dwarves |
+| 2 | The 1950s Boy Band Samba Soul |
+| 3 | The 8Bit Witch |
+| 4 | The 8Bit Parade 6 |
+| 5 | The 8Bit Parade 7 |
+| 6 | Glitch Dragon Cartridge |
+| 7 | Retro Racer |
+| 8 | The Devil's Chiptune |
+| 9 | Untitled |
+| 10 | Rule Tha World |
 
 ### Bosses
 Three levels end in a boss with an HP bar that **fires telegraphed, dodgeable

@@ -18,6 +18,7 @@ project began as a study of how an 8-bit platformer is engineered (see
 |---|---|
 | `js/pixel.js` | `Art`: sprites authored as char-grids, baked to offscreen canvases |
 | `js/sound.js` | `Sfx`: a tiny WebAudio blip/noise synth (no audio files) |
+| `js/music.js` | `Music`: one looping MP3 per level from `assets/music/` (HTMLAudioElement; handles autoplay-block retry on first gesture; `playFor(i)` is idempotent so retries don't restart the song) |
 | `js/input.js` | `Input`: keyboard + gamepad + `setAction()` for touch; held / justPressed / justReleased edges |
 | `js/powerups.js` | `Powerups`: the 10 abilities' metadata (`POWERUPS`), order, tuning (`PWR`), and `freshPower()` initial state |
 | `js/level.js` | `Level`: the 10 `LEVELS`, `THEMES`, `BOSSES`, `parseLevel()` + tile helpers |
@@ -48,7 +49,8 @@ project began as a study of how an 8-bit platformer is engineered (see
 
 ## Adding content
 - **A level**: add a `{ name, powerup, rows }` to `LEVELS` and a matching entry
-  to `THEMES` (same index). Keep pits ≤ 3 wide and **keep enemies/crates/spikes
+  to `THEMES` (same index), plus a track in `music.js` `TRACKS` (same index —
+  tracks wrap via modulo if there are fewer than levels). Keep pits ≤ 3 wide and **keep enemies/crates/spikes
   ≥ 7 tiles before any pit** (jumping an obstacle just before a pit lands you in
   it — an unfair trap). Put the `*` secret on a high ledge reachable by a
   charged jump. To gate it behind a boss, add to `BOSSES`.

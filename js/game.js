@@ -74,6 +74,11 @@ const Game = {
     this.cam = { x: 0, y: 0 };
     this.time = 300 * 60; // frames
     this.frame = 0;
+    // level music: one looping track per level; announce it when it changes
+    // (a retry of the same level keeps the track playing seamlessly)
+    if (Music.playFor(this.levelIndex)) {
+      this._flashBanner('NOW PLAYING  ' + Music.currentName(), Art.PAL.e, 140);
+    }
   },
 
   _goalX() {
@@ -144,7 +149,7 @@ const Game = {
       this._updateParticles(); Input.endFrame(); return;
     }
     if (this.state === State.COMPLETE) {
-      if (Input.justPressed('start') || Input.justPressed('jump')) this.state = State.TITLE;
+      if (Input.justPressed('start') || Input.justPressed('jump')) { this.state = State.TITLE; Music.stop(); }
       this._updateParticles(); Input.endFrame(); return;
     }
 
@@ -1001,8 +1006,16 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
-// mute toggle on M
-window.addEventListener('keydown', e => { if (e.code === 'KeyM') Sfx.toggleMute(); });
+// M cycles the audio: everything on -> music off -> everything off -> ...
+let audioMode = 0; // 0 = music + sfx, 1 = sfx only, 2 = silent
+window.addEventListener('keydown', e => {
+  if (e.code !== 'KeyM') return;
+  audioMode = (audioMode + 1) % 3;
+  Music.setEnabled(audioMode === 0);
+  if (Sfx.isMuted() !== (audioMode === 2)) Sfx.toggleMute();
+  const label = ['MUSIC + SFX ON', 'MUSIC OFF', 'ALL SOUND OFF'][audioMode];
+  Game._flashBanner(label, Art.PAL.o, 90);
+});
 // resume audio on first interaction (browser policy)
 window.addEventListener('pointerdown', () => Sfx.resume(), { once: true });
 
