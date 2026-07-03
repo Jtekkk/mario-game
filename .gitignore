@@ -8,3 +8,9 @@ package-lock.json
 *.swp
 .vscode/
 .idea/
+
+# desktop build outputs (source lives in desktop/, binaries are built on demand)
+desktop/BOLT.exe
+desktop/bolt-linux
+desktop/game/
+desktop/go.mod

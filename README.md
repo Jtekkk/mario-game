@@ -116,3 +116,12 @@ locked until it falls.
 ## Credits
 Design, code, and art: original. Built with plain web tech. Learnings documented
 in `docs/LEARNINGS.md`.
+
+## Desktop build (Windows .exe)
+`desktop/` contains a tiny Go launcher that embeds the entire game (HTML, JS,
+and all ten tracks) into one standalone executable. Double-click `BOLT.exe`:
+it serves the game on localhost, opens your browser, and exits by itself when
+you close the tab. Loopback-only (no firewall prompt), no install, no runtime
+dependencies. Build with Go installed: `sh desktop/build.sh`.
+The exe is unsigned, so Windows SmartScreen warns on first run — "More info"
+→ "Run anyway".
